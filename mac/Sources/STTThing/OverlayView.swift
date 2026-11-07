@@ -164,7 +164,7 @@ struct OverlayView: View {
         GeometryReader { geo in
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: transcript.paused) {
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: max(6, transcript.fontSize * 0.45)) {
                         Spacer(minLength: 0)
                         let shown = lines(kind)
                         if shown.isEmpty {
@@ -178,11 +178,14 @@ struct OverlayView: View {
                                     .lineSpacing(transcript.fontSize * 0.18)
                                     .fixedSize(horizontal: false, vertical: true)
                                     .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.leading, 11)
+                                    .overlay(alignment: .leading) { phraseMark(line, kind) }
                             }
                         }
                         Color.clear.frame(height: 1).id("bottom")
                     }
-                    .padding(.horizontal, 16)
+                    .padding(.leading, 12)
+                    .padding(.trailing, 16)
                     .padding(.top, 4)
                     .padding(.bottom, 8)
                     // Short text sits at the bottom, like subtitles.
@@ -214,6 +217,16 @@ struct OverlayView: View {
                 )
             )
         }
+    }
+
+    /// Thin bar along each phrase: green while it is still being spoken (or
+    /// translated), faint once it is finished.
+    private func phraseMark(_ line: Line, _ kind: Kind) -> some View {
+        let active = kind == .translation ? waiting(line) : !line.final
+        return Capsule()
+            .fill(active ? live.opacity(0.85) : textColor.opacity(0.2))
+            .frame(width: 2.5)
+            .padding(.vertical, transcript.fontSize * 0.15)
     }
 
     private func translationText(_ line: Line) -> Text {
