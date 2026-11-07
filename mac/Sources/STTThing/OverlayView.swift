@@ -30,9 +30,7 @@ struct OverlayView: View {
     private let live = Color(red: 0.373, green: 0.827, blue: 0.553)
     private let paused = Color(red: 1.0, green: 0.78, blue: 0.35)
     private let errorColor = Color(red: 1.0, green: 0.478, blue: 0.42)
-    private let accent = Color(red: 0.49, green: 0.71, blue: 1.0)
     private let originalBackground = Color(red: 0.07, green: 0.07, blue: 0.08)
-    private let translationBackground = Color(red: 0.04, green: 0.08, blue: 0.19)
 
     var body: some View {
         GeometryReader { geo in
@@ -45,7 +43,6 @@ struct OverlayView: View {
                     dividerBar
                     section(.translation)
                         .frame(maxHeight: .infinity)
-                        .background(translationBackground.opacity(transcript.opacity))
                 } else {
                     section(.original)
                         .frame(maxHeight: .infinity)
@@ -90,7 +87,7 @@ struct OverlayView: View {
             if settings.enabled || usage.conversationCost > 0 {
                 Text(Money.format(usage.conversationCost))
                     .font(.system(size: 11, weight: .medium).monospacedDigit())
-                    .foregroundColor(accent.opacity(0.85))
+                    .foregroundColor(textColor.opacity(0.6))
                     .help("Translation cost in this conversation")
             }
             BarButton(
@@ -118,25 +115,24 @@ struct OverlayView: View {
         HStack(spacing: 7) {
             Text(languagePair)
                 .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(translationBackground)
+                .foregroundColor(originalBackground)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 1.5)
-                .background(Capsule().fill(accent))
+                .background(Capsule().fill(textColor.opacity(0.75)))
             Text(transcript.translationError ?? Languages.name(settings.targetLanguage))
                 .font(.system(size: 11))
-                .foregroundColor(transcript.translationError != nil ? errorColor : accent.opacity(0.7))
+                .foregroundColor(transcript.translationError != nil ? errorColor : textColor.opacity(0.45))
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 0)
             Image(systemName: "line.3.horizontal")
                 .font(.system(size: 9, weight: .semibold))
-                .foregroundColor(accent.opacity(0.45))
+                .foregroundColor(textColor.opacity(0.35))
                 .padding(.trailing, 10)
         }
         .padding(.leading, 12)
         .frame(height: OverlayLayout.divider)
-        .background(translationBackground.opacity(min(1, transcript.opacity + 0.1)))
-        .overlay(alignment: .top) { Rectangle().fill(accent.opacity(0.3)).frame(height: 1) }
+        .overlay(alignment: .top) { Rectangle().fill(Color.white.opacity(0.12)).frame(height: 1) }
         .background(SplitDragArea(split: $transcript.split))
         .help("Drag to change the split")
     }
