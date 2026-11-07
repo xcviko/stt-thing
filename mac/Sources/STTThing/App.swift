@@ -57,6 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var devices: [InputDevice] = []
     private var hotKeyRef: EventHotKeyRef?
     private var mouseTimer: Timer?
+    private var usr1Source: DispatchSourceSignal?
     private let defaults = UserDefaults.standard
 
     private var device: String {
@@ -78,6 +79,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         createPanel()
         createStatusItem()
         registerHotKey()
+        listenForPauseSignal()
 
         guard let dir = Backend.locateBackendDir() else {
             transcript.handle(.error("backend folder not found (set STT_BACKEND_DIR)"))
@@ -141,8 +143,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// `kill -USR1 <pid>` toggles pause (for scripts and tests).
+    private func listenForPauseSignal() {
+        signal(SIGUSR1, SIG_IGN)
+        let src = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: .main)
+        src.setEventHandler { [weak self] in self?.togglePause() }
+        src.resume()
+        usr1Source = src
+    }
+
     @objc private func togglePause() {
         transcript.paused.toggle()
+        transcript.speech = false
+        backend?.send(transcript.paused ? "pause" : "resume")
         updateMouseCapture()
         statusItem.menu = buildMenu()
     }
@@ -181,6 +194,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startBackend() {
         transcript.loading(device: device)
         backend?.start(device: device)
+        if transcript.paused { backend?.send("pause") }
     }
 
     @objc private func restartBackend() {
@@ -241,7 +255,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         deviceItem.submenu = deviceMenu
         menu.addItem(deviceItem)
 
-        menu.addItem(item(transcript.paused ? "Resume (back to live)" : "Pause and scroll back", #selector(togglePause)))
+        menu.addItem(item(transcript.paused ? "Resume listening" : "Pause listening", #selector(togglePause)))
         menu.addItem(item("Clear text", #selector(clearText)))
         menu.addItem(.separator())
         menu.addItem(item("Bigger text", #selector(biggerText), key: "="))
@@ -315,6 +329,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 @main
 enum STTThingApp {
     static func main() {
+        // Writing to the stdin of a backend that just died must not kill us.
+        signal(SIGPIPE, SIG_IGN)
         let app = NSApplication.shared
         let delegate = AppDelegate()
         app.delegate = delegate

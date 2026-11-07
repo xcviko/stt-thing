@@ -41,7 +41,7 @@ struct OverlayView: View {
             Circle()
                 .fill(dotColor)
                 .frame(width: 7, height: 7)
-            Text(transcript.paused ? "paused · scroll to read · \(transcript.status)" : transcript.status)
+            Text(transcript.paused ? "paused · not listening · scroll to read" : transcript.status)
                 .font(.system(size: 11).monospacedDigit())
                 .foregroundColor(transcript.isError ? errorColor : textColor.opacity(0.45))
                 .lineLimit(1)
@@ -49,7 +49,7 @@ struct OverlayView: View {
             Spacer(minLength: 8)
             BarButton(
                 symbol: transcript.paused ? "play.fill" : "pause.fill",
-                help: transcript.paused ? "Resume (back to live)" : "Pause to scroll back",
+                help: transcript.paused ? "Resume listening" : "Pause listening",
                 tint: transcript.paused ? paused : textColor.opacity(0.55),
                 action: onTogglePause
             )

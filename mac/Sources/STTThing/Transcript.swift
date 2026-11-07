@@ -16,8 +16,8 @@ final class Transcript: ObservableObject {
     @Published var isError = false
     @Published var speech = false
     @Published var ready = false
-    /// Paused: no auto-scroll, the text area takes the mouse so it can be
-    /// scrolled. Transcription keeps running.
+    /// Paused: the backend ignores audio, there is no auto-scroll and the
+    /// text area takes the mouse so it can be scrolled.
     @Published var paused = false
     @Published var device = ""
     @Published var fontSize: CGFloat
@@ -43,7 +43,9 @@ final class Transcript: ObservableObject {
             self.device = device
             setStatus(statusLine())
         case .level(let speech):
-            if self.speech != speech { self.speech = speech }
+            if !paused && self.speech != speech { self.speech = speech }
+        case .paused(let isPaused):
+            if isPaused { speech = false }
         case .update(let seg, let committed, let tentative, let final, let ms):
             if let i = lines.firstIndex(where: { $0.id == seg }) {
                 if committed.isEmpty && tentative.isEmpty && final {

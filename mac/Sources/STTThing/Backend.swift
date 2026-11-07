@@ -4,6 +4,7 @@ import Foundation
 enum BackendEvent {
     case ready(device: String)
     case level(speech: Bool)
+    case paused(Bool)
     case update(seg: Int, committed: String, tentative: String, final: Bool, ms: Int)
     case error(String)
     case stopped(code: Int32)
@@ -20,6 +21,7 @@ final class Backend {
     var onEvent: ((BackendEvent) -> Void)?
 
     private var process: Process?
+    private var stdin: FileHandle?
     private var buffer = Data()
     private var stoppingProcess: Process?
 
@@ -76,9 +78,10 @@ final class Backend {
 
         let out = Pipe()
         let err = Pipe()
+        let inp = Pipe()
         p.standardOutput = out
         p.standardError = err
-        p.standardInput = FileHandle.nullDevice
+        p.standardInput = inp
         buffer = Data()
 
         out.fileHandleForReading.readabilityHandler = { [weak self] h in
@@ -105,14 +108,23 @@ final class Backend {
         do {
             try p.run()
             process = p
+            stdin = inp.fileHandleForWriting
         } catch {
             onEvent?(.error("Could not start backend: \(error.localizedDescription)"))
         }
     }
 
+    /// Sends a command line ("pause" / "resume") to the backend.
+    func send(_ command: String) {
+        guard let stdin, process?.isRunning == true else { return }
+        try? stdin.write(contentsOf: Data((command + "\n").utf8))
+    }
+
     func stop() {
         guard let p = process else { return }
         process = nil
+        try? stdin?.close()
+        stdin = nil
         stoppingProcess = p
         p.terminate() // SIGTERM; the backend also exits when its parent dies
         DispatchQueue.global().asyncAfter(deadline: .now() + 1.5) {
@@ -137,6 +149,8 @@ final class Backend {
             return .ready(device: obj["device"] as? String ?? "")
         case "level":
             return .level(speech: obj["speech"] as? Bool ?? false)
+        case "paused":
+            return .paused(obj["paused"] as? Bool ?? false)
         case "update":
             return .update(
                 seg: obj["seg"] as? Int ?? 0,

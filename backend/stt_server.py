@@ -9,7 +9,11 @@ Output: one JSON object per line on stdout. Logs go to stderr.
   {"type": "ready", "device": ..., "model": ...}
   {"type": "level", "db": -32.5, "speech": true}
   {"type": "update", "seg": 3, "committed": "...", "tentative": "...", "final": false, ...}
+  {"type": "paused", "paused": true}
   {"type": "error", "message": "..."}
+
+Commands on stdin, one per line: "pause" (finish the current segment and
+ignore audio until resumed; the model stays loaded) and "resume".
 """
 
 from __future__ import annotations
@@ -77,6 +81,21 @@ def install_exit_handlers() -> None:
                 os._exit(0)
 
     threading.Thread(target=watch_parent, daemon=True).start()
+
+
+def start_command_reader(commands: queue.Queue) -> None:
+    """Reads "pause" / "resume" lines from stdin."""
+
+    def run():
+        try:
+            for line in sys.stdin:
+                cmd = line.strip().lower()
+                if cmd:
+                    commands.put(cmd)
+        except Exception:
+            pass
+
+    threading.Thread(target=run, daemon=True).start()
 
 
 # ---------------------------------------------------------------- audio input
@@ -249,6 +268,8 @@ class Pipeline:
         self.level_n = 0
         self.last_level_at = 0.0
         self.stats: list[tuple[float, float]] = []  # (window seconds, ms)
+        self.commands: queue.Queue[str] = queue.Queue()
+        self.paused = False
 
     # ---- VAD
 
@@ -365,7 +386,43 @@ class Pipeline:
         self.last_level_at = now
         emit({"type": "level", "db": round(20 * np.log10(rms + 1e-9), 1), "speech": self.seg is not None})
 
+    def _handle_commands(self):
+        while True:
+            try:
+                cmd = self.commands.get_nowait()
+            except queue.Empty:
+                return
+            if cmd == "pause" and not self.paused:
+                if self.seg is not None:
+                    self._finish_segment()  # keep what was already said
+                self.paused = True
+                self.buf = np.zeros(0, np.float32)
+                self.preroll.clear()
+                self.recent_voiced.clear()
+                emit({"type": "paused", "paused": True})
+            elif cmd == "resume" and self.paused:
+                self._drain_audio()
+                self.paused = False
+                emit({"type": "paused", "paused": False})
+
+    def _drain_audio(self):
+        while True:
+            try:
+                self.q.get_nowait()
+            except queue.Empty:
+                return
+
     def step(self, timeout: float = 0.01) -> None:
+        self._handle_commands()
+        if self.paused:
+            # Audio keeps arriving from the device; drop it.
+            try:
+                self.q.get(timeout=0.05)
+            except queue.Empty:
+                pass
+            self._drain_audio()
+            return
+
         try:
             chunk = self.q.get(timeout=timeout)
             parts = [chunk]
@@ -434,6 +491,7 @@ def main():
     log(f"model ready in {time.monotonic() - t0:.1f}s")
 
     pipeline = Pipeline(args, asr, audio_q)
+    start_command_reader(pipeline.commands)
     source.start()
     emit({"type": "ready", "device": source.name, "model": args.model})
 
