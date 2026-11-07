@@ -27,6 +27,7 @@ import sys
 import threading
 import time
 from collections import deque
+from pathlib import Path
 
 import numpy as np
 import soxr
@@ -200,15 +201,48 @@ class FileSource:
 # ------------------------------------------------------------------- ASR
 
 
+DEFAULT_MODEL = "sonic-speech/parakeet-tdt-0.6b-v3-int8"
+
+
+def load_parakeet(model_id: str):
+    """Loads a parakeet-mlx model, including quantized checkpoints.
+
+    parakeet-mlx's from_pretrained fails on quantized weights (extra .scales
+    and .biases), so quantize the layers that have .scales first and load the
+    weights after that. Same approach as the telegram skill.
+    """
+
+    import mlx.core as mx
+    import mlx.nn as nn
+    from huggingface_hub import snapshot_download
+    from parakeet_mlx.utils import from_config
+
+    path = Path(snapshot_download(model_id))
+    config = json.loads((path / "config.json").read_text())
+    model = from_config(config)
+    weights = mx.load(str(path / "model.safetensors"))
+    quant = config.get("quantization")
+    if quant:
+        qlayers = {k.rsplit(".", 1)[0] for k in weights if k.endswith(".scales")}
+        nn.quantize(
+            model,
+            group_size=quant["group_size"],
+            bits=quant["bits"],
+            class_predicate=lambda p, _: p in qlayers,
+        )
+    model.load_weights(list(weights.items()))
+    mx.eval(model.parameters())
+    return model
+
+
 class Asr:
     def __init__(self, model_id: str):
         import mlx.core as mx
-        from parakeet_mlx import from_pretrained
         from parakeet_mlx.audio import get_logmel
 
         self.mx = mx
         self.get_logmel = get_logmel
-        self.model = from_pretrained(model_id)
+        self.model = load_parakeet(model_id)
         self.transcribe(np.zeros(SR, np.float32))  # warm-up
 
     def transcribe(self, audio: np.ndarray, offset: float = 0.0) -> list[Word]:
@@ -457,7 +491,7 @@ def main():
     p.add_argument("--file", help="feed a wav file instead of a device (test mode)")
     p.add_argument("--speed", type=float, default=1.0, help="playback speed for --file")
     p.add_argument("--list-devices", action="store_true")
-    p.add_argument("--model", default="mlx-community/parakeet-tdt-0.6b-v2")
+    p.add_argument("--model", default=DEFAULT_MODEL, help="Hugging Face id of a parakeet MLX model")
     p.add_argument("--interval", type=float, default=0.25, help="min seconds between decode starts")
     p.add_argument("--silence", type=float, default=0.7, help="silence that ends a segment, seconds")
     p.add_argument("--min-speech", type=float, default=0.25, help="ignore segments with less speech, seconds")

@@ -5,8 +5,18 @@ import SwiftUI
 /// the transcript is paused.
 let topBarHeight: CGFloat = 26
 
+enum PanelKind {
+    case original
+    case translation
+}
+
+/// One floating panel: the recognized text or its translation. Both panels
+/// share the transcript, so pause and scrolling work the same in each.
 struct OverlayView: View {
+    let kind: PanelKind
     @ObservedObject var transcript: Transcript
+    @ObservedObject var settings: TranslationSettings
+    @ObservedObject var usage: UsageStore
     var onTogglePause: () -> Void
     var onMenu: () -> Void
 
@@ -14,6 +24,21 @@ struct OverlayView: View {
     private let live = Color(red: 0.373, green: 0.827, blue: 0.553)
     private let paused = Color(red: 1.0, green: 0.78, blue: 0.35)
     private let errorColor = Color(red: 1.0, green: 0.478, blue: 0.42)
+    /// Accent of the translation panel.
+    private let accent = Color(red: 0.49, green: 0.71, blue: 1.0)
+
+    private var isTranslation: Bool { kind == .translation }
+
+    private var background: Color {
+        isTranslation
+            ? Color(red: 0.05, green: 0.08, blue: 0.16) // deep blue
+            : Color(red: 0.07, green: 0.07, blue: 0.08)
+    }
+
+    private var border: Color {
+        if transcript.paused { return paused.opacity(0.45) }
+        return isTranslation ? accent.opacity(0.28) : Color.white.opacity(0.08)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -22,14 +47,11 @@ struct OverlayView: View {
         }
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(red: 0.07, green: 0.07, blue: 0.08).opacity(transcript.opacity))
+                .fill(background.opacity(transcript.opacity))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(
-                    transcript.paused ? paused.opacity(0.45) : Color.white.opacity(0.08),
-                    lineWidth: 1
-                )
+                .strokeBorder(border, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
@@ -38,15 +60,30 @@ struct OverlayView: View {
 
     private var topBar: some View {
         HStack(spacing: 7) {
-            Circle()
-                .fill(dotColor)
-                .frame(width: 7, height: 7)
-            Text(transcript.paused ? "paused · not listening · scroll to read" : transcript.status)
+            if isTranslation {
+                Text(languagePair)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(background)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 1.5)
+                    .background(Capsule().fill(accent))
+            } else {
+                Circle()
+                    .fill(dotColor)
+                    .frame(width: 7, height: 7)
+            }
+            Text(statusText)
                 .font(.system(size: 11).monospacedDigit())
-                .foregroundColor(transcript.isError ? errorColor : textColor.opacity(0.45))
+                .foregroundColor(statusIsError ? errorColor : textColor.opacity(0.45))
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 8)
+            if isTranslation {
+                Text(Money.format(usage.conversationCost))
+                    .font(.system(size: 11, weight: .medium).monospacedDigit())
+                    .foregroundColor(accent.opacity(0.85))
+                    .help("Translation cost in this conversation")
+            }
             BarButton(
                 symbol: transcript.paused ? "play.fill" : "pause.fill",
                 help: transcript.paused ? "Resume listening" : "Pause listening",
@@ -55,10 +92,29 @@ struct OverlayView: View {
             )
             BarButton(symbol: "ellipsis", help: "Menu", tint: textColor.opacity(0.55), action: onMenu)
         }
-        .padding(.leading, 14)
+        .padding(.leading, 12)
         .padding(.trailing, 6)
         .frame(height: topBarHeight)
         .background(WindowDragArea())
+    }
+
+    private var languagePair: String {
+        let from = settings.sourceLanguage == "auto" ? "AUTO" : settings.sourceLanguage.uppercased()
+        return "\(from) → \(settings.targetLanguage.uppercased())"
+    }
+
+    private var statusText: String {
+        if isTranslation {
+            if let err = transcript.translationError { return err }
+            if transcript.paused { return "paused" }
+            return Languages.name(settings.targetLanguage)
+        }
+        if transcript.paused { return "paused · not listening · scroll to read" }
+        return transcript.status
+    }
+
+    private var statusIsError: Bool {
+        isTranslation ? transcript.translationError != nil : transcript.isError
     }
 
     private var dotColor: Color {
@@ -66,7 +122,21 @@ struct OverlayView: View {
         return transcript.speech ? live : textColor.opacity(0.42)
     }
 
-    // MARK: transcript
+    // MARK: text
+
+    private var visibleLines: [Line] {
+        guard isTranslation else { return transcript.lines }
+        return transcript.lines.filter { !$0.translation.isEmpty || waiting($0) }
+    }
+
+    private func waiting(_ line: Line) -> Bool {
+        line.translationPending || (!line.final && !line.committed.isEmpty)
+    }
+
+    private var placeholder: String {
+        if isTranslation { return "Translation into \(Languages.name(settings.targetLanguage)) appears here" }
+        return transcript.ready ? "Listening on \(transcript.device)…" : "Loading model…"
+    }
 
     private var textArea: some View {
         GeometryReader { geo in
@@ -74,13 +144,14 @@ struct OverlayView: View {
                 ScrollView(.vertical, showsIndicators: transcript.paused) {
                     VStack(alignment: .leading, spacing: 4) {
                         Spacer(minLength: 0)
-                        if transcript.lines.isEmpty {
-                            Text(transcript.ready ? "Listening on \(transcript.device)…" : "Loading model…")
+                        let lines = visibleLines
+                        if lines.isEmpty {
+                            Text(placeholder)
                                 .font(.system(size: 15))
                                 .foregroundColor(textColor.opacity(0.42))
                         } else {
-                            ForEach(transcript.lines) { line in
-                                lineText(line)
+                            ForEach(lines) { line in
+                                (isTranslation ? translationText(line) : lineText(line))
                                     .font(.system(size: transcript.fontSize))
                                     .lineSpacing(transcript.fontSize * 0.18)
                                     .fixedSize(horizontal: false, vertical: true)
@@ -118,6 +189,13 @@ struct OverlayView: View {
                 )
             )
         }
+    }
+
+    private func translationText(_ line: Line) -> Text {
+        let done = line.final && !line.translationPending
+        let dots = Text(line.translation.isEmpty ? "…" : " …").foregroundColor(textColor.opacity(0.4))
+        let main = Text(line.translation).foregroundColor(done ? textColor.opacity(0.62) : textColor)
+        return waiting(line) ? main + dots : main
     }
 
     private func lineText(_ line: Line) -> Text {

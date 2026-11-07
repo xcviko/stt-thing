@@ -79,11 +79,19 @@ class LocalAgreement:
 
         if self.committed:
             last = self.committed[-1]
-            # Take punctuation for the last committed word from the newest
-            # hypothesis: it has more right context ("please?" -> "please").
             for w in hypothesis:
-                if w.norm == last.norm and abs(w.start - last.start) <= TIME_TOLERANCE * 2:
+                if abs(w.start - last.start) > TIME_TOLERANCE * 2:
+                    continue
+                if w.norm == last.norm:
+                    # Take punctuation from the newest hypothesis: it has more
+                    # right context ("please?" -> "please").
                     last.text = w.text
+                    break
+                if w.norm.startswith(last.norm) and len(w.norm) > len(last.norm):
+                    # The word was committed while still being spoken
+                    # ("your" -> "yourself"): extend it instead of repeating.
+                    last.text = w.text
+                    last.end = w.end
                     break
 
         last_t = self.committed_end

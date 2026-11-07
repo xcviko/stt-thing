@@ -5,6 +5,8 @@ struct Line: Identifiable, Equatable {
     var committed: String
     var tentative: String
     var final: Bool
+    var translation: String = ""
+    var translationPending = false
 }
 
 /// State shown in the overlay.
@@ -22,8 +24,16 @@ final class Transcript: ObservableObject {
     @Published var device = ""
     @Published var fontSize: CGFloat
     @Published var opacity: Double
+    /// Last translation problem, cleared after a few seconds.
+    @Published var translationError: String?
+
+    /// Called with (line id, committed text, final) on every transcript update.
+    var onCommitted: ((Int, String, Bool) -> Void)?
 
     private var lastMs: Int?
+    /// Segment ids restart at 1 when the backend restarts; this keeps line ids unique.
+    private var generation = 0
+    private var errorClearTask: DispatchWorkItem?
 
     init(fontSize: CGFloat, opacity: Double) {
         self.fontSize = fontSize
@@ -32,6 +42,7 @@ final class Transcript: ObservableObject {
 
     func loading(device: String) {
         ready = false
+        generation += 1
         self.device = device
         setStatus("loading model · \(device)")
     }
@@ -47,18 +58,22 @@ final class Transcript: ObservableObject {
         case .paused(let isPaused):
             if isPaused { speech = false }
         case .update(let seg, let committed, let tentative, let final, let ms):
-            if let i = lines.firstIndex(where: { $0.id == seg }) {
+            let id = generation * 1_000_000 + seg
+            if let i = lines.firstIndex(where: { $0.id == id }) {
                 if committed.isEmpty && tentative.isEmpty && final {
                     lines.remove(at: i)
                 } else {
-                    lines[i] = Line(id: seg, committed: committed, tentative: tentative, final: final)
+                    lines[i].committed = committed
+                    lines[i].tentative = tentative
+                    lines[i].final = final
                 }
             } else if !(committed.isEmpty && tentative.isEmpty) {
-                lines.append(Line(id: seg, committed: committed, tentative: tentative, final: final))
+                lines.append(Line(id: id, committed: committed, tentative: tentative, final: final))
             }
             if lines.count > Self.maxLines { lines.removeFirst(lines.count - Self.maxLines) }
             lastMs = ms
             setStatus(statusLine())
+            onCommitted?(id, committed, final)
         case .error(let message):
             setStatus(message, error: true)
         case .stopped(let code):
@@ -66,6 +81,20 @@ final class Transcript: ObservableObject {
             speech = false
             setStatus("backend stopped (code \(code)) · right-click → Restart backend", error: true)
         }
+    }
+
+    func setTranslation(line id: Int, text: String, pending: Bool) {
+        guard let i = lines.firstIndex(where: { $0.id == id }) else { return }
+        lines[i].translation = text
+        lines[i].translationPending = pending
+    }
+
+    func showTranslationError(_ message: String) {
+        translationError = message
+        errorClearTask?.cancel()
+        let task = DispatchWorkItem { [weak self] in self?.translationError = nil }
+        errorClearTask = task
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8, execute: task)
     }
 
     func clear() {
