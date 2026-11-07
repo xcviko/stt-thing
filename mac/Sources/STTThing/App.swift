@@ -1,5 +1,4 @@
 import AppKit
-import Combine
 import Carbon.HIToolbox
 import SwiftUI
 
@@ -51,12 +50,7 @@ enum Defaults {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var originalPanel: OverlayPanel!
-    private var translationPanel: OverlayPanel!
-    private var panels: [OverlayPanel] { [originalPanel, translationPanel].compactMap { $0 } }
-    /// ⌥⌘T hides both panels.
-    private var panelsHidden = false
-    private var cancellables: Set<AnyCancellable> = []
+    private var panel: OverlayPanel!
     private var statusItem: NSStatusItem!
     private var transcript: Transcript!
     private var backend: Backend?
@@ -118,34 +112,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: window
 
-    /// Two panels: the recognized text and its translation, each moved and
-    /// sized on its own. The translation panel starts right below the other.
+    /// One panel: recognized text on top, translation below.
     private func createPanel() {
         let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let size = NSSize(width: 760, height: 150)
-        let top = NSRect(
-            origin: NSPoint(x: screen.midX - size.width / 2, y: screen.maxY - size.height - 12), size: size
-        )
-        let below = top.offsetBy(dx: 0, dy: -(size.height + 8))
-        originalPanel = makePanel(.original, frame: top, autosave: "STTOverlay")
-        translationPanel = makePanel(.translation, frame: below, autosave: "STTTranslation")
-        applyCaptureSetting()
-        updatePanelVisibility()
+        let size = NSSize(width: 760, height: 300)
+        let origin = NSPoint(x: screen.midX - size.width / 2, y: screen.maxY - size.height - 12)
+        panel = OverlayPanel(contentRect: NSRect(origin: origin, size: size))
+        panel.minSize = OverlayLayout.minSize
 
-        // Show or hide the translation panel when settings change.
-        settings.$enabled.combineLatest(settings.$showOriginal)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.updatePanelVisibility() }
-            .store(in: &cancellables)
-
-        startMouseTracking()
-        startDebugSnapshots()
-    }
-
-    private func makePanel(_ kind: PanelKind, frame: NSRect, autosave: String) -> OverlayPanel {
-        let panel = OverlayPanel(contentRect: frame)
         let view = OverlayView(
-            kind: kind,
             transcript: transcript,
             settings: settings,
             usage: usage,
@@ -155,41 +130,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let host = OverlayHostingView(rootView: view)
         host.menuProvider = { [weak self] in self?.buildMenu() ?? NSMenu() }
         panel.contentView = host
-        panel.setFrameAutosaveName(autosave)
-        return panel
-    }
-
-    private func updatePanelVisibility() {
-        let showTranslation = !panelsHidden && settings.enabled
-        let showOriginal = !panelsHidden && (!settings.enabled || settings.showOriginal)
-        for (panel, show) in [(originalPanel!, showOriginal), (translationPanel!, showTranslation)] {
-            if show && !panel.isVisible { panel.orderFrontRegardless() }
-            if !show && panel.isVisible { panel.orderOut(nil) }
-        }
+        panel.setFrameAutosaveName("STTOverlayPanel")
+        applyCaptureSetting()
+        panel.orderFrontRegardless()
+        startMouseTracking()
+        startDebugSnapshots()
     }
 
     /// Clicks go through the text area to the window below. The panel takes
     /// the mouse only over the top bar, or anywhere while paused (to scroll).
     /// macOS has no per-region click-through, so this follows the cursor.
     private func startMouseTracking() {
-        panels.forEach { $0.ignoresMouseEvents = true }
+        panel.ignoresMouseEvents = true
         mouseTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
             self?.updateMouseCapture()
         }
         RunLoop.main.add(mouseTimer!, forMode: .common) // keep working during drags and menus
     }
 
+    /// Parts of the panel that take the mouse: top bar, the divider between
+    /// original and translation, the resize edges and corner; everything
+    /// while paused. The rest lets clicks through.
     private func updateMouseCapture() {
+        guard panel.isVisible else { return }
         let p = NSEvent.mouseLocation
-        for panel in panels where panel.isVisible {
-            let frame = panel.frame
-            let inPanel = frame.insetBy(dx: -2, dy: -2).contains(p)
-            let inTopBar = inPanel && p.y >= frame.maxY - topBarHeight - 2
-            let dragging = NSEvent.pressedMouseButtons & 1 == 1 && !panel.ignoresMouseEvents
-            let capture = inTopBar || (transcript.paused && inPanel) || dragging
-            if panel.ignoresMouseEvents == capture {
-                panel.ignoresMouseEvents = !capture
+        let f = panel.frame
+        let inPanel = f.insetBy(dx: -2, dy: -2).contains(p)
+        var capture = transcript.paused && inPanel
+        if inPanel && !capture {
+            let fromTop = f.maxY - p.y
+            let edge = OverlayLayout.resizeEdge + 2
+            let inTopBar = fromTop <= OverlayLayout.topBar + 2
+            let onRight = p.x >= f.maxX - edge
+            let onBottom = p.y <= f.minY + edge
+            var onDivider = false
+            if settings.enabled {
+                let space = OverlayLayout.textSpace(panelHeight: f.height)
+                let dividerTop = OverlayLayout.topBar + space * transcript.split
+                onDivider = fromTop >= dividerTop - 2 && fromTop <= dividerTop + OverlayLayout.divider + 2
             }
+            capture = inTopBar || onRight || onBottom || onDivider
+        }
+        // Keep the mouse during a drag (move, resize, split) even if the
+        // cursor leaves the zone.
+        if NSEvent.pressedMouseButtons & 1 == 1 && !panel.ignoresMouseEvents { capture = true }
+        if panel.ignoresMouseEvents == capture {
+            panel.ignoresMouseEvents = !capture
         }
     }
 
@@ -231,8 +217,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             n += 1
             let targets: [(String, NSView?)] = [
-                ("", self.originalPanel.isVisible ? self.originalPanel.contentView : nil),
-                ("tr-", self.translationPanel.isVisible ? self.translationPanel.contentView : nil),
+                ("", self.panel.isVisible ? self.panel.contentView : nil),
                 ("settings-", self.settingsWindow?.isVisible == true ? self.settingsWindow?.contentView : nil),
                 ("stats-", self.statsWindow?.isVisible == true ? self.statsWindow?.contentView : nil),
             ]
@@ -274,7 +259,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let main = NSMenu()
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "Quit STT Thing", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: "Quit stt-thing", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
         main.addItem(appItem)
 
@@ -301,13 +286,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func applyCaptureSetting() {
         // .none asks the window server to leave the panel out of screen
         // captures and screen sharing. Newer capture APIs may ignore it.
-        let type: NSWindow.SharingType = defaults.bool(forKey: Defaults.hideFromCapture) ? .none : .readOnly
-        panels.forEach { $0.sharingType = type }
+        panel.sharingType = defaults.bool(forKey: Defaults.hideFromCapture) ? .none : .readOnly
     }
 
     @objc private func toggleWindow() {
-        panelsHidden.toggle()
-        updatePanelVisibility()
+        if panel.isVisible { panel.orderOut(nil) } else { panel.orderFrontRegardless() }
     }
 
     // MARK: backend
@@ -394,9 +377,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let toItem = NSMenuItem(title: "Translate to: \(Languages.name(settings.targetLanguage))", action: nil, keyEquivalent: "")
         toItem.submenu = toMenu
         menu.addItem(toItem)
-        let original = item("Show original panel", #selector(toggleOriginal))
-        original.state = settings.showOriginal ? .on : .off
-        menu.addItem(original)
         menu.addItem(item("Translation settings…", #selector(showSettings), key: ","))
         menu.addItem(item("Cost & stats…", #selector(showStats)))
         menu.addItem(.separator())
@@ -451,14 +431,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.menu = buildMenu()
     }
 
-    @objc private func toggleOriginal() {
-        settings.showOriginal.toggle()
-        statusItem.menu = buildMenu()
-    }
-
     @objc private func showSettings() {
         if settingsWindow == nil {
-            settingsWindow = makeWindow(title: "STT Thing · Translation", view: SettingsView(settings: settings), resizable: false)
+            settingsWindow = makeWindow(title: "stt-thing · Translation", view: SettingsView(settings: settings), resizable: false)
         }
         present(settingsWindow!)
     }
@@ -466,7 +441,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func showStats() {
         if statsWindow == nil {
             let view = StatsView(usage: usage, onNewConversation: { [weak self] in self?.newConversation() })
-            statsWindow = makeWindow(title: "STT Thing · Cost & stats", view: view, resizable: true)
+            statsWindow = makeWindow(title: "stt-thing · Cost & stats", view: view, resizable: true)
             statsWindow?.setContentSize(NSSize(width: 680, height: 860))
         }
         present(statsWindow!)

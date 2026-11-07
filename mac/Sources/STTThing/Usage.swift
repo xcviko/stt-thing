@@ -21,7 +21,7 @@ struct ConversationInfo: Codable, Identifiable {
     let started: Date
 }
 
-/// Keeps translation costs in ~/Library/Application Support/STT Thing.
+/// Keeps translation costs in ~/Library/Application Support/stt-thing.
 final class UsageStore: ObservableObject {
     @Published private(set) var records: [UsageRecord] = []
     @Published private(set) var conversations: [ConversationInfo] = []
@@ -32,10 +32,7 @@ final class UsageStore: ObservableObject {
     private let encoder = JSONEncoder()
 
     init() {
-        let dir = ProcessInfo.processInfo.environment["STT_DATA_DIR"].map { URL(fileURLWithPath: $0) }
-            ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("STT Thing", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let dir = AppPaths.dataDir
         recordsURL = dir.appendingPathComponent("usage.jsonl")
         conversationsURL = dir.appendingPathComponent("conversations.jsonl")
         encoder.dateEncodingStrategy = .iso8601
@@ -104,6 +101,25 @@ final class UsageStore: ObservableObject {
         }
         try? data.write(to: url)
     }
+}
+
+enum AppPaths {
+    /// ~/Library/Application Support/stt-thing (STT_DATA_DIR overrides it for
+    /// tests). The folder used to be called "STT Thing"; it is renamed once.
+    static let dataDir: URL = {
+        if let custom = ProcessInfo.processInfo.environment["STT_DATA_DIR"] {
+            return URL(fileURLWithPath: custom)
+        }
+        let fm = FileManager.default
+        let support = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let dir = support.appendingPathComponent("stt-thing", isDirectory: true)
+        let old = support.appendingPathComponent("STT Thing", isDirectory: true)
+        if !fm.fileExists(atPath: dir.path), fm.fileExists(atPath: old.path) {
+            try? fm.moveItem(at: old, to: dir)
+        }
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
 }
 
 enum Money {

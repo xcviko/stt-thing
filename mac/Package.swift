@@ -2,8 +2,11 @@
 import PackageDescription
 
 let package = Package(
-    name: "STTThing",
+    name: "stt-thing",
     platforms: [.macOS(.v14)],
+    products: [
+        .executable(name: "stt-thing", targets: ["STTThing"])
+    ],
     targets: [
         .executableTarget(
             name: "STTThing",

@@ -15,7 +15,6 @@ struct SettingsView: View {
                 Picker("To", selection: $settings.targetLanguage) {
                     ForEach(Languages.target) { Text($0.name).tag($0.code) }
                 }
-                Toggle("Show the original panel too", isOn: $settings.showOriginal)
                 Text("Speech recognition is parakeet v3: it understands the 25 European languages in the From list and detects the language itself. From only tells the translator what to expect.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -37,7 +36,7 @@ struct SettingsView: View {
                 } else {
                     TextField("Base URL", text: $settings.customBaseURL, prompt: Text("https://host/v1"))
                     HStack {
-                        SecureField("API key", text: $settings.customKey, prompt: Text("optional"))
+                        SecureField("API key", text: $settings.customKey, prompt: Text("empty = vertex-proxy key file"))
                         Button("From vertex-proxy") {
                             testResult = settings.importVertexProxyKey()
                                 ? "Key taken from \(TranslationSettings.vertexProxyKeyFile)"

@@ -70,7 +70,7 @@ enum TranslationClient {
         if !ep.key.isEmpty { req.setValue("Bearer \(ep.key)", forHTTPHeaderField: "Authorization") }
         if ep.isOpenRouter {
             req.setValue("https://github.com/xcviko/stt-thing", forHTTPHeaderField: "HTTP-Referer")
-            req.setValue("STT Thing", forHTTPHeaderField: "X-Title")
+            req.setValue("stt-thing", forHTTPHeaderField: "X-Title")
         }
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
 

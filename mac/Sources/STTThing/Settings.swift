@@ -1,5 +1,4 @@
 import Foundation
-import Security
 
 struct Language: Hashable, Identifiable {
     let code: String
@@ -66,8 +65,8 @@ enum Provider: String, CaseIterable, Identifiable {
     var title: String { self == .openRouter ? "OpenRouter" : "Custom (OpenAI API)" }
 }
 
-/// Translation settings. Plain values live in UserDefaults, API keys in the
-/// Keychain.
+/// Translation settings. Plain values live in UserDefaults, API keys in
+/// keys.json (see KeyStore).
 final class TranslationSettings: ObservableObject {
     static let openRouterURL = "https://openrouter.ai/api/v1"
     static let model = "google/gemini-3.5-flash-lite"
@@ -85,22 +84,20 @@ final class TranslationSettings: ObservableObject {
     @Published var enabled: Bool { didSet { d.set(enabled, forKey: "tr.enabled") } }
     @Published var sourceLanguage: String { didSet { d.set(sourceLanguage, forKey: "tr.from") } }
     @Published var targetLanguage: String { didSet { d.set(targetLanguage, forKey: "tr.to") } }
-    @Published var showOriginal: Bool { didSet { d.set(showOriginal, forKey: "tr.showOriginal") } }
     @Published var provider: Provider { didSet { d.set(provider.rawValue, forKey: "tr.provider") } }
     @Published var customBaseURL: String { didSet { d.set(customBaseURL, forKey: "tr.customURL") } }
     @Published var customModel: String { didSet { d.set(customModel, forKey: "tr.customModel") } }
     @Published var customInputPrice: Double { didSet { d.set(customInputPrice, forKey: "tr.customIn") } }
     @Published var customOutputPrice: Double { didSet { d.set(customOutputPrice, forKey: "tr.customOut") } }
     @Published var customMinimalReasoning: Bool { didSet { d.set(customMinimalReasoning, forKey: "tr.customReasoning") } }
-    @Published var openRouterKey: String { didSet { Keychain.set(openRouterKey, account: "openrouter") } }
-    @Published var customKey: String { didSet { Keychain.set(customKey, account: "custom") } }
+    @Published var openRouterKey: String { didSet { KeyStore.set(openRouterKey, account: "openrouter") } }
+    @Published var customKey: String { didSet { KeyStore.set(customKey, account: "custom") } }
 
     init() {
         d.register(defaults: [
             "tr.enabled": false,
             "tr.from": "en",
             "tr.to": "ru",
-            "tr.showOriginal": true,
             "tr.provider": Provider.openRouter.rawValue,
             "tr.customURL": Self.defaultCustomURL,
             "tr.customModel": Self.defaultCustomModel,
@@ -111,25 +108,29 @@ final class TranslationSettings: ObservableObject {
         enabled = d.bool(forKey: "tr.enabled")
         sourceLanguage = d.string(forKey: "tr.from") ?? "en"
         targetLanguage = d.string(forKey: "tr.to") ?? "ru"
-        showOriginal = d.bool(forKey: "tr.showOriginal")
         provider = Provider(rawValue: d.string(forKey: "tr.provider") ?? "") ?? .openRouter
         customBaseURL = d.string(forKey: "tr.customURL") ?? Self.defaultCustomURL
         customModel = d.string(forKey: "tr.customModel") ?? Self.defaultCustomModel
         customInputPrice = d.double(forKey: "tr.customIn")
         customOutputPrice = d.double(forKey: "tr.customOut")
         customMinimalReasoning = d.bool(forKey: "tr.customReasoning")
-        openRouterKey = Keychain.get(account: "openrouter") ?? ""
-        customKey = Keychain.get(account: "custom") ?? ""
+        openRouterKey = KeyStore.get(account: "openrouter") ?? ""
+        customKey = KeyStore.get(account: "custom") ?? ""
     }
 
     /// Reads the vertex-proxy key file into the custom key. Returns false when
     /// the file is missing or empty.
     func importVertexProxyKey() -> Bool {
-        let path = (Self.vertexProxyKeyFile as NSString).expandingTildeInPath
-        guard let key = try? String(contentsOfFile: path, encoding: .utf8)
-            .trimmingCharacters(in: .whitespacesAndNewlines), !key.isEmpty else { return false }
+        guard let key = Self.readVertexProxyKey() else { return false }
         customKey = key
         return true
+    }
+
+    static func readVertexProxyKey() -> String? {
+        let path = (vertexProxyKeyFile as NSString).expandingTildeInPath
+        guard let key = try? String(contentsOfFile: path, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines), !key.isEmpty else { return nil }
+        return key
     }
 
     /// Everything a request needs, or a message saying what is missing.
@@ -160,8 +161,13 @@ final class TranslationSettings: ObservableObject {
                 return .failure(.notConfigured("set the custom endpoint URL"))
             }
             let model = customModel.trimmingCharacters(in: .whitespaces)
+            // No key typed in and the URL is the vertex-proxy: use its key file.
+            var key = customKey
+            if key.isEmpty, url.host?.contains("vertex-proxy") == true {
+                key = Self.readVertexProxyKey() ?? ""
+            }
             return .success(Endpoint(
-                chatURL: url, key: customKey, model: model.isEmpty ? Self.defaultCustomModel : model,
+                chatURL: url, key: key, model: model.isEmpty ? Self.defaultCustomModel : model,
                 isOpenRouter: false, minimalReasoning: customMinimalReasoning,
                 inputPrice: customInputPrice, outputPrice: customOutputPrice
             ))
@@ -169,33 +175,31 @@ final class TranslationSettings: ObservableObject {
     }
 }
 
-enum Keychain {
-    private static let service = "com.xcviko.stt-thing"
+/// API keys in ~/Library/Application Support/stt-thing/keys.json, readable
+/// only by the user (0600). Not the Keychain: with ad-hoc signing every
+/// rebuild changes the app's signature and the Keychain asks for the
+/// password again.
+enum KeyStore {
+    private static var url: URL {
+        AppPaths.dataDir.appendingPathComponent("keys.json")
+    }
+
+    private static func load() -> [String: String] {
+        guard let data = try? Data(contentsOf: url),
+              let dict = try? JSONSerialization.jsonObject(with: data) as? [String: String] else { return [:] }
+        return dict
+    }
 
     static func get(account: String) -> String? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        var out: AnyObject?
-        guard SecItemCopyMatching(query as CFDictionary, &out) == errSecSuccess,
-              let data = out as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
+        load()[account]
     }
 
     static func set(_ value: String, account: String) {
-        let base: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ]
-        SecItemDelete(base as CFDictionary)
-        guard !value.isEmpty else { return }
-        var add = base
-        add[kSecValueData as String] = Data(value.utf8)
-        SecItemAdd(add as CFDictionary, nil)
+        var dict = load()
+        if value.isEmpty { dict.removeValue(forKey: account) } else { dict[account] = value }
+        guard let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys]) else { return }
+        let path = url.path
+        FileManager.default.createFile(atPath: path, contents: data, attributes: [.posixPermissions: 0o600])
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
     }
 }
