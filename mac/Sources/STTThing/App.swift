@@ -19,7 +19,7 @@ final class OverlayPanel: NSPanel {
         backgroundColor = .clear
         isOpaque = false
         hasShadow = false
-        isMovableByWindowBackground = true
+        isMovableByWindowBackground = false
         minSize = NSSize(width: 280, height: 70)
     }
 
@@ -27,15 +27,12 @@ final class OverlayPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
-/// Left drag moves the window, right click opens the menu.
-final class DragHostingView<Content: View>: NSHostingView<Content> {
+/// Hosting view that opens the menu on right click and reacts to the first
+/// click without activating the app.
+final class OverlayHostingView<Content: View>: NSHostingView<Content> {
     var menuProvider: (() -> NSMenu)?
 
-    override var mouseDownCanMoveWindow: Bool { true }
-
-    override func mouseDown(with event: NSEvent) {
-        window?.performDrag(with: event)
-    }
+    override var mouseDownCanMoveWindow: Bool { false }
 
     override func rightMouseDown(with event: NSEvent) {
         guard let menu = menuProvider?() else { return }
@@ -59,6 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var backend: Backend?
     private var devices: [InputDevice] = []
     private var hotKeyRef: EventHotKeyRef?
+    private var mouseTimer: Timer?
     private let defaults = UserDefaults.standard
 
     private var device: String {
@@ -104,13 +102,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let origin = NSPoint(x: screen.midX - size.width / 2, y: screen.maxY - size.height - 12)
         panel = OverlayPanel(contentRect: NSRect(origin: origin, size: size))
 
-        let host = DragHostingView(rootView: OverlayView(transcript: transcript))
+        let view = OverlayView(
+            transcript: transcript,
+            onTogglePause: { [weak self] in self?.togglePause() },
+            onMenu: { [weak self] in self?.popUpMenu() }
+        )
+        let host = OverlayHostingView(rootView: view)
         host.menuProvider = { [weak self] in self?.buildMenu() ?? NSMenu() }
         panel.contentView = host
         panel.setFrameAutosaveName("STTOverlay")
         applyCaptureSetting()
         panel.orderFrontRegardless()
+        startMouseTracking()
         startDebugSnapshots()
+    }
+
+    /// Clicks go through the text area to the window below. The panel takes
+    /// the mouse only over the top bar, or anywhere while paused (to scroll).
+    /// macOS has no per-region click-through, so this follows the cursor.
+    private func startMouseTracking() {
+        panel.ignoresMouseEvents = true
+        mouseTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
+            self?.updateMouseCapture()
+        }
+        RunLoop.main.add(mouseTimer!, forMode: .common) // keep working during drags and menus
+    }
+
+    private func updateMouseCapture() {
+        guard panel.isVisible else { return }
+        let p = NSEvent.mouseLocation
+        let frame = panel.frame
+        let inPanel = frame.insetBy(dx: -2, dy: -2).contains(p)
+        let inTopBar = inPanel && p.y >= frame.maxY - topBarHeight - 2
+        let dragging = NSEvent.pressedMouseButtons & 1 == 1 && !panel.ignoresMouseEvents
+        let capture = inTopBar || (transcript.paused && inPanel) || dragging
+        if panel.ignoresMouseEvents == capture {
+            panel.ignoresMouseEvents = !capture
+        }
+    }
+
+    @objc private func togglePause() {
+        transcript.paused.toggle()
+        updateMouseCapture()
+        statusItem.menu = buildMenu()
+    }
+
+    private func popUpMenu() {
+        buildMenu().popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
     }
 
     /// Debug aid: STT_SNAPSHOT=/path/prefix saves a PNG of the overlay every
@@ -203,6 +241,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         deviceItem.submenu = deviceMenu
         menu.addItem(deviceItem)
 
+        menu.addItem(item(transcript.paused ? "Resume (back to live)" : "Pause and scroll back", #selector(togglePause)))
         menu.addItem(item("Clear text", #selector(clearText)))
         menu.addItem(.separator())
         menu.addItem(item("Bigger text", #selector(biggerText), key: "="))

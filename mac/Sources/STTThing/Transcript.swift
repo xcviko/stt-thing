@@ -16,6 +16,9 @@ final class Transcript: ObservableObject {
     @Published var isError = false
     @Published var speech = false
     @Published var ready = false
+    /// Paused: no auto-scroll, the text area takes the mouse so it can be
+    /// scrolled. Transcription keeps running.
+    @Published var paused = false
     @Published var device = ""
     @Published var fontSize: CGFloat
     @Published var opacity: Double
