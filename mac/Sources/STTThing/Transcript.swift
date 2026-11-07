@@ -82,6 +82,13 @@ final class Transcript: ObservableObject {
             onCommitted?(id, committed, final)
         case .error(let message):
             setStatus(message, error: true)
+        case .log(let line):
+            // Until the model is ready, show what the backend is doing (the
+            // first launch of a release build installs Python packages and
+            // downloads the model, which takes a few minutes).
+            if !ready && !isError {
+                setStatus("starting · " + String(line.prefix(120)))
+            }
         case .stopped(let code):
             ready = false
             speech = false

@@ -156,6 +156,11 @@ final class Translator {
 
     func process(line id: Int, committed: String, final: Bool) {
         guard settings.enabled else { return }
+        // Not configured (no key yet): say so, but leave the text alone.
+        if case .failure(let err) = settings.endpoint() {
+            onError?(err.localizedDescription)
+            return
+        }
         var state = lines[id] ?? LineState()
         let ns = committed as NSString
         guard ns.length > state.sentUpTo else {

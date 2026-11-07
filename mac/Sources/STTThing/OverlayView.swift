@@ -157,7 +157,12 @@ struct OverlayView: View {
 
     private func placeholder(_ kind: Kind) -> String {
         if kind == .translation { return "Translation into \(Languages.name(settings.targetLanguage)) appears here" }
-        return transcript.ready ? "Listening on \(transcript.device)…" : "Loading model…"
+        if transcript.ready { return "Listening on \(transcript.device)…" }
+        // Before the model is ready the status says what the backend is doing.
+        if transcript.status.hasPrefix("starting · ") {
+            return String(transcript.status.dropFirst("starting · ".count))
+        }
+        return "Loading model…"
     }
 
     private func section(_ kind: Kind) -> some View {

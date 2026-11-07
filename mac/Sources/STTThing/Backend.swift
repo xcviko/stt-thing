@@ -7,6 +7,8 @@ enum BackendEvent {
     case paused(Bool)
     case update(seg: Int, committed: String, tentative: String, final: Bool, ms: Int)
     case error(String)
+    /// A stderr line (uv installing packages, model download, ...).
+    case log(String)
     case stopped(code: Int32)
 }
 
@@ -29,9 +31,10 @@ final class Backend {
         self.backendDir = backendDir
     }
 
-    /// The backend folder: Info.plist key STTBackendDir (set by make-app.sh),
-    /// the STT_BACKEND_DIR env variable, or a "backend" folder above the
-    /// current directory or the executable.
+    /// The backend folder: Info.plist key STTBackendDir (dev builds from
+    /// make-app.sh), the STT_BACKEND_DIR env variable, the copy inside the app
+    /// (release builds), or a "backend" folder above the current directory or
+    /// the executable.
     static func locateBackendDir() -> URL? {
         let fm = FileManager.default
         var candidates: [URL] = []
@@ -40,6 +43,9 @@ final class Backend {
         }
         if let dir = ProcessInfo.processInfo.environment["STT_BACKEND_DIR"] {
             candidates.append(URL(fileURLWithPath: dir))
+        }
+        if let res = Bundle.main.resourceURL {
+            candidates.append(res.appendingPathComponent("backend"))
         }
         for start in [URL(fileURLWithPath: fm.currentDirectoryPath), Bundle.main.executableURL ?? URL(fileURLWithPath: "/")] {
             var url = start
@@ -51,9 +57,22 @@ final class Backend {
         return candidates.first { fm.fileExists(atPath: $0.appendingPathComponent("stt_server.py").path) }
     }
 
-    /// The venv python when it exists, otherwise `uv run` (creates the venv).
+    /// Release builds carry the backend and a uv binary inside the app.
+    private var bundledUV: URL? {
+        guard let res = Bundle.main.resourceURL,
+              backendDir.standardizedFileURL.path.hasPrefix(res.standardizedFileURL.path) else { return nil }
+        let uv = res.appendingPathComponent("bin/uv")
+        return FileManager.default.isExecutableFile(atPath: uv.path) ? uv : nil
+    }
+
+    /// Release: `uv run` with the bundled uv; the venv (and Python, if the Mac
+    /// has no 3.12) go to Application Support on first launch.
+    /// Dev: the repo's venv python, or `uv run` to create it.
     private func command(_ args: [String]) -> (URL, [String]) {
         let script = backendDir.appendingPathComponent("stt_server.py").path
+        if let uv = bundledUV {
+            return (uv, ["run", "--project", backendDir.path, "--frozen", "python", script] + args)
+        }
         let venvPython = backendDir.appendingPathComponent(".venv/bin/python")
         if FileManager.default.isExecutableFile(atPath: venvPython.path) {
             return (venvPython, [script] + args)
@@ -67,14 +86,15 @@ final class Backend {
     func start(device: String) {
         stop()
         let (exe, args) = command(["--device", device])
+        if bundledUV != nil,
+           !FileManager.default.fileExists(atPath: AppPaths.dataDir.appendingPathComponent("venv/bin/python").path) {
+            onEvent?(.log("first launch: installing Python packages (~0.5 GB), then the speech model (~0.8 GB)…"))
+        }
         let p = Process()
         p.executableURL = exe
         p.arguments = args
         p.currentDirectoryURL = backendDir
-        var env = ProcessInfo.processInfo.environment
-        env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + (env["PATH"] ?? "/usr/bin:/bin")
-        env["PYTHONUNBUFFERED"] = "1"
-        p.environment = env
+        p.environment = environment()
 
         let out = Pipe()
         let err = Pipe()
@@ -89,10 +109,16 @@ final class Backend {
             guard !data.isEmpty else { return }
             DispatchQueue.main.async { self?.consume(data) }
         }
-        err.fileHandleForReading.readabilityHandler = { h in
+        err.fileHandleForReading.readabilityHandler = { [weak self] h in
             let data = h.availableData
-            if !data.isEmpty, let s = String(data: data, encoding: .utf8) {
-                FileHandle.standardError.write(Data(("[backend] " + s).utf8))
+            guard !data.isEmpty, let s = String(data: data, encoding: .utf8) else { return }
+            FileHandle.standardError.write(Data(("[backend] " + s).utf8))
+            // Progress bars rewrite the line with \r: keep the last piece.
+            let last = s.split(whereSeparator: { $0 == "\n" || $0 == "\r" })
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .last { !$0.isEmpty }
+            if let last {
+                DispatchQueue.main.async { self?.onEvent?(.log(last)) }
             }
         }
         p.terminationHandler = { [weak self] proc in
@@ -112,6 +138,19 @@ final class Backend {
         } catch {
             onEvent?(.error("Could not start backend: \(error.localizedDescription)"))
         }
+    }
+
+    private func environment() -> [String: String] {
+        var env = ProcessInfo.processInfo.environment
+        env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + (env["PATH"] ?? "/usr/bin:/bin")
+        env["PYTHONUNBUFFERED"] = "1"
+        if bundledUV != nil {
+            // Nothing may be written into the signed app bundle.
+            env["UV_PROJECT_ENVIRONMENT"] = AppPaths.dataDir.appendingPathComponent("venv").path
+            env["PYTHONDONTWRITEBYTECODE"] = "1"
+            env["UV_NO_PROGRESS"] = "1"
+        }
+        return env
     }
 
     /// Sends a command line ("pause" / "resume") to the backend.
@@ -174,6 +213,7 @@ final class Backend {
             p.executableURL = exe
             p.arguments = args
             p.currentDirectoryURL = self.backendDir
+            p.environment = self.environment()
             let out = Pipe()
             p.standardOutput = out
             p.standardError = FileHandle.nullDevice
