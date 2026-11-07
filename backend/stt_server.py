@@ -217,7 +217,8 @@ def load_parakeet(model_id: str):
     from huggingface_hub import snapshot_download
     from parakeet_mlx.utils import from_config
 
-    path = Path(snapshot_download(model_id))
+    # A local folder (the model bundled in a release app) or a Hugging Face id.
+    path = Path(model_id) if Path(model_id).is_dir() else Path(snapshot_download(model_id))
     config = json.loads((path / "config.json").read_text())
     model = from_config(config)
     weights = mx.load(str(path / "model.safetensors"))
@@ -491,7 +492,7 @@ def main():
     p.add_argument("--file", help="feed a wav file instead of a device (test mode)")
     p.add_argument("--speed", type=float, default=1.0, help="playback speed for --file")
     p.add_argument("--list-devices", action="store_true")
-    p.add_argument("--model", default=DEFAULT_MODEL, help="Hugging Face id of a parakeet MLX model")
+    p.add_argument("--model", default=DEFAULT_MODEL, help="Hugging Face id or local folder of a parakeet MLX model")
     p.add_argument("--interval", type=float, default=0.25, help="min seconds between decode starts")
     p.add_argument("--silence", type=float, default=0.7, help="silence that ends a segment, seconds")
     p.add_argument("--min-speech", type=float, default=0.25, help="ignore segments with less speech, seconds")

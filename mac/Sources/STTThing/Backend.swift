@@ -25,6 +25,7 @@ final class Backend {
     private var process: Process?
     private var stdin: FileHandle?
     private var buffer = Data()
+    private var logHandle: FileHandle?
     private var stoppingProcess: Process?
 
     init(backendDir: URL) {
@@ -65,13 +66,23 @@ final class Backend {
         return FileManager.default.isExecutableFile(atPath: uv.path) ? uv : nil
     }
 
+    /// Release builds also carry the speech model, so nothing is downloaded
+    /// from Hugging Face (some networks cannot reach it).
+    private var bundledModel: URL? {
+        guard bundledUV != nil, let res = Bundle.main.resourceURL else { return nil }
+        let dir = res.appendingPathComponent("model")
+        return FileManager.default.fileExists(atPath: dir.appendingPathComponent("config.json").path) ? dir : nil
+    }
+
     /// Release: `uv run` with the bundled uv; the venv (and Python, if the Mac
     /// has no 3.12) go to Application Support on first launch.
     /// Dev: the repo's venv python, or `uv run` to create it.
     private func command(_ args: [String]) -> (URL, [String]) {
         let script = backendDir.appendingPathComponent("stt_server.py").path
         if let uv = bundledUV {
-            return (uv, ["run", "--project", backendDir.path, "--frozen", "python", script] + args)
+            var extra: [String] = []
+            if let model = bundledModel { extra = ["--model", model.path] }
+            return (uv, ["run", "--project", backendDir.path, "--frozen", "python", script] + extra + args)
         }
         let venvPython = backendDir.appendingPathComponent(".venv/bin/python")
         if FileManager.default.isExecutableFile(atPath: venvPython.path) {
@@ -88,8 +99,11 @@ final class Backend {
         let (exe, args) = command(["--device", device])
         if bundledUV != nil,
            !FileManager.default.fileExists(atPath: AppPaths.dataDir.appendingPathComponent("venv/bin/python").path) {
-            onEvent?(.log("first launch: installing Python packages (~0.5 GB), then the speech model (~0.8 GB)…"))
+            onEvent?(.log(bundledModel != nil
+                ? "first launch: installing Python packages (~0.5 GB), a minute or two…"
+                : "first launch: installing Python packages (~0.5 GB), then the speech model (~0.8 GB)…"))
         }
+        openLog(command: [exe.path] + args)
         let p = Process()
         p.executableURL = exe
         p.arguments = args
@@ -113,6 +127,7 @@ final class Backend {
             let data = h.availableData
             guard !data.isEmpty, let s = String(data: data, encoding: .utf8) else { return }
             FileHandle.standardError.write(Data(("[backend] " + s).utf8))
+            DispatchQueue.main.async { try? self?.logHandle?.write(contentsOf: data) }
             // Progress bars rewrite the line with \r: keep the last piece.
             let last = s.split(whereSeparator: { $0 == "\n" || $0 == "\r" })
                 .map { $0.trimmingCharacters(in: .whitespaces) }
@@ -138,6 +153,18 @@ final class Backend {
         } catch {
             onEvent?(.error("Could not start backend: \(error.localizedDescription)"))
         }
+    }
+
+    /// Backend stderr also goes to Application Support/stt-thing/backend.log
+    /// (rewritten on every start) so problems on other Macs can be read later.
+    private func openLog(command: [String]) {
+        try? logHandle?.close()
+        let url = AppPaths.dataDir.appendingPathComponent("backend.log")
+        FileManager.default.createFile(atPath: url.path, contents: nil)
+        logHandle = try? FileHandle(forWritingTo: url)
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
+        let header = "\(Date()) stt-thing \(version)\n$ \(command.joined(separator: " "))\n"
+        try? logHandle?.write(contentsOf: Data(header.utf8))
     }
 
     private func environment() -> [String: String] {

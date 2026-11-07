@@ -31,8 +31,10 @@ open mac/build/stt-thing.app
 cd mac && ./make-app.sh --release 0.1.0
 ```
 
-Собирает `mac/build/release/stt-thing.app` и `stt-thing-0.1.0-arm64.zip`. Внутри приложения
-лежат исходники бэкенда, `uv.lock` и бинарник `uv`; при первом запуске uv ставит Python 3.12
+Собирает `mac/build/release/stt-thing.app` и `stt-thing-<версия>-arm64.zip` (~690 МБ). Внутри
+приложения лежат исходники бэкенда, `uv.lock`, бинарник `uv` и модель распознавания (из
+локального HF-кэша): с Hugging Face у пользователя ничего не качается, на некоторых сетях
+он недоступен. Лог бэкенда пишется в `~/Library/Application Support/stt-thing/backend.log`; при первом запуске uv ставит Python 3.12
 и пакеты в `~/Library/Application Support/stt-thing/venv` (в сам бандл ничего не пишется,
 чтобы не ломать подпись). Подпись ad-hoc, поэтому на чужом Маке нужно один раз снять
 карантин: `xattr -dr com.apple.quarantine /Applications/stt-thing.app`.
