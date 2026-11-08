@@ -86,4 +86,10 @@ if [[ $RELEASE == 1 ]]; then
   rm -f "$ZIP"
   ditto -c -k --keepParent "$APP" "$ZIP"
   echo "Zip:   $ZIP ($(du -h "$ZIP" | cut -f1))"
+  NOTES="$PWD/build/release/release-notes-$VERSION.md"
+  [[ -f "$NOTES" ]] || echo "Missing release notes: $NOTES (see CLAUDE.md, Releasing)"
+  echo
+  echo "To publish, run:"
+  echo "  cd \"$ROOT\" && git push"
+  echo "  cd \"$ROOT\" && gh release create v$VERSION \"mac/build/release/stt-thing-$VERSION-arm64.zip\" --title \"stt-thing $VERSION\" --notes-file \"mac/build/release/release-notes-$VERSION.md\""
 fi
