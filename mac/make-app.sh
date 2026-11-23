@@ -80,7 +80,18 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-codesign --force --sign - "$APP"
+# Stable self-signed identity in a dedicated keychain (scripts/make-cert.sh): the Microphone grant
+# survives rebuilds and codesign never asks for a password. Ad-hoc if the identity isn't there.
+KC="$HOME/Library/Keychains/stt-thing.keychain-db"
+SIGN_ID="$(security find-identity -p codesigning "$KC" 2>/dev/null | awk '/"stt-thing-dev"/ { print $2; exit }')"
+if [[ -n "$SIGN_ID" ]]; then
+  security unlock-keychain -p stt-thing "$KC"
+  codesign --force --keychain "$KC" --sign "$SIGN_ID" "$APP"
+  echo "Signed with stt-thing-dev"
+else
+  codesign --force --sign - "$APP"
+  echo "Signed ad-hoc (run scripts/make-cert.sh once for a stable identity)"
+fi
 echo "Built: $APP"
 
 if [[ $RELEASE == 1 ]]; then

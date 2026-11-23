@@ -72,6 +72,9 @@ recordings. Some apps capture the screen in a way that ignores this, so check wi
 
 Each sentence is translated as soon as it's finished and appears in the right column a moment later.
 
+**Send each sentence twice, show the faster answer** (in Settings) makes slow translations arrive about 0.3 s sooner.
+It doubles the requests: twice the cost on OpenRouter.
+
 ## Cost
 
 The top bar shows what translation has cost in this conversation. ⚙ → Cost & stats shows this conversation, today and
@@ -102,9 +105,12 @@ Requires Xcode and [uv](https://docs.astral.sh/uv/).
 
 ```sh
 cd backend && uv sync
-cd ../mac && ./make-app.sh
+cd ../mac && ./scripts/make-cert.sh && ./make-app.sh
 open build/stt-thing.app
 ```
+
+`scripts/make-cert.sh` (once) creates the `stt-thing-dev` signing certificate in its own keychain. With it, macOS
+remembers the Microphone permission across rebuilds; without it, every build is signed ad-hoc and asks again.
 
 This build runs the speech backend straight from `backend/`. The first launch downloads the speech model (about
 1.3 GB) from Hugging Face. To see the backend's output, run `swift run` in `mac/`.

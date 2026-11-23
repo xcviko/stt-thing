@@ -89,6 +89,8 @@ final class TranslationSettings: ObservableObject {
     @Published var customInputPrice: Double { didSet { d.set(customInputPrice, forKey: "tr.customIn") } }
     @Published var customOutputPrice: Double { didSet { d.set(customOutputPrice, forKey: "tr.customOut") } }
     @Published var customMinimalReasoning: Bool { didSet { d.set(customMinimalReasoning, forKey: "tr.customReasoning") } }
+    /// Send each sentence twice and show the first answer.
+    @Published var raceRequests: Bool { didSet { d.set(raceRequests, forKey: "tr.race") } }
     @Published var openRouterKey: String { didSet { KeyStore.set(openRouterKey, account: "openrouter") } }
     @Published var customKey: String { didSet { KeyStore.set(customKey, account: "custom") } }
 
@@ -103,6 +105,7 @@ final class TranslationSettings: ObservableObject {
             "tr.customIn": Self.defaultInputPrice,
             "tr.customOut": Self.defaultOutputPrice,
             "tr.customReasoning": true,
+            "tr.race": false,
         ])
         enabled = d.bool(forKey: "tr.enabled")
         sourceLanguage = d.string(forKey: "tr.from") ?? "en"
@@ -113,6 +116,7 @@ final class TranslationSettings: ObservableObject {
         customInputPrice = d.double(forKey: "tr.customIn")
         customOutputPrice = d.double(forKey: "tr.customOut")
         customMinimalReasoning = d.bool(forKey: "tr.customReasoning")
+        raceRequests = d.bool(forKey: "tr.race")
         openRouterKey = KeyStore.get(account: "openrouter") ?? ""
         customKey = KeyStore.get(account: "custom") ?? ""
     }

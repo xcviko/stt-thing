@@ -58,6 +58,11 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                Toggle("Send each sentence twice, show the faster answer", isOn: $settings.raceRequests)
+                Text("Slow answers come about 0.3 s sooner, typical ones about 0.1 s. Twice the requests: on OpenRouter that is twice the cost, on a subscription proxy twice the quota.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
                 HStack(alignment: .top) {
                     Button(testing ? "Testing…" : "Test") { runTest() }
                         .disabled(testing)

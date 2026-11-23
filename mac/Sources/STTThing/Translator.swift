@@ -219,28 +219,47 @@ final class Translator {
         let conversation = usage.current.id
         publish(id)
 
-        Task {
-            do {
-                let reply = try await TranslationClient.translate(
-                    source, context: context, from: from, to: to, endpoint: endpoint
-                )
-                await MainActor.run {
-                    self.usage.add(UsageRecord(
-                        date: Date(), conversation: conversation,
-                        provider: endpoint.isOpenRouter ? "openrouter" : endpoint.chatURL.host ?? "custom",
-                        model: endpoint.model, inputTokens: reply.inputTokens, outputTokens: reply.outputTokens,
-                        reasoningTokens: reply.reasoningTokens, cost: reply.cost,
-                        costIsEstimate: reply.costIsEstimate, latencyMs: reply.latencyMs
-                    ))
-                    self.mark(line: id, index: index, text: reply.text)
-                }
-            } catch {
-                await MainActor.run {
-                    self.mark(line: id, index: index, text: nil)
-                    self.onError?(error.localizedDescription)
+        // Racing: the same request goes out `copies` times and the first
+        // answer is shown. Every copy runs to the end and is counted in the
+        // cost, because the provider bills it anyway.
+        let copies = settings.raceRequests ? 2 : 1
+        let race = RaceState()
+        for _ in 0..<copies {
+            Task {
+                do {
+                    let reply = try await TranslationClient.translate(
+                        source, context: context, from: from, to: to, endpoint: endpoint
+                    )
+                    await MainActor.run {
+                        self.usage.add(UsageRecord(
+                            date: Date(), conversation: conversation,
+                            provider: endpoint.isOpenRouter ? "openrouter" : endpoint.chatURL.host ?? "custom",
+                            model: endpoint.model, inputTokens: reply.inputTokens, outputTokens: reply.outputTokens,
+                            reasoningTokens: reply.reasoningTokens, cost: reply.cost,
+                            costIsEstimate: reply.costIsEstimate, latencyMs: reply.latencyMs
+                        ))
+                        if !race.delivered {
+                            race.delivered = true
+                            self.mark(line: id, index: index, text: reply.text)
+                        }
+                    }
+                } catch {
+                    await MainActor.run {
+                        race.failures += 1
+                        if race.failures == copies && !race.delivered {
+                            self.mark(line: id, index: index, text: nil)
+                            self.onError?(error.localizedDescription)
+                        }
+                    }
                 }
             }
         }
+    }
+
+    /// Shared by the copies of one raced request (main thread only).
+    private final class RaceState {
+        var delivered = false
+        var failures = 0
     }
 
     private func mark(line id: Int, index: Int, text: String?) {
