@@ -26,7 +26,7 @@ struct SettingsView: View {
                 Picker("To", selection: $settings.targetLanguage) {
                     ForEach(Languages.target) { Text($0.name).tag($0.code) }
                 }
-                Text("Speech recognition is Parakeet Ultra: it understands the 25 European languages in the From list and detects the language itself. From only tells the translator what to expect.")
+                Text("Translation goes between English and Russian. Speech recognition hears 25 European languages by itself.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

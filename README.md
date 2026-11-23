@@ -62,8 +62,7 @@ recordings. Some apps capture the screen in a way that ignores this, so check wi
 ## Translation
 
 1. ⚙ in the top bar (or Menu → Settings…). The panel shows the settings in place of the captions.
-2. Turn on Translate the transcript and pick the languages. Speech is recognized in 25 European languages, From
-   only tells the translator what to expect.
+2. Turn on Translate the transcript and pick the direction: English to Russian or Russian to English.
 3. Pick a provider:
    - **OpenRouter**: paste your [OpenRouter key](https://openrouter.ai/keys). The model is Gemini 3.5 Flash Lite.
    - **Custom (OpenAI API)**: any endpoint that serves `/chat/completions`, with its key and model name. Enter its

@@ -6,55 +6,23 @@ struct Language: Hashable, Identifiable {
     var id: String { code }
 }
 
+/// Translation goes between English and Russian only. (Speech recognition
+/// itself still hears all 25 languages Parakeet Ultra knows.)
 enum Languages {
-    static let auto = Language(code: "auto", name: "Auto-detect")
+    static let english = Language(code: "en", name: "English")
+    static let russian = Language(code: "ru", name: "Russian")
 
-    /// Languages Parakeet Ultra transcribes (it detects the language itself).
-    static let speech: [Language] = [
-        Language(code: "en", name: "English"),
-        Language(code: "ru", name: "Russian"),
-        Language(code: "uk", name: "Ukrainian"),
-        Language(code: "de", name: "German"),
-        Language(code: "fr", name: "French"),
-        Language(code: "es", name: "Spanish"),
-        Language(code: "it", name: "Italian"),
-        Language(code: "pt", name: "Portuguese"),
-        Language(code: "pl", name: "Polish"),
-        Language(code: "nl", name: "Dutch"),
-        Language(code: "sv", name: "Swedish"),
-        Language(code: "da", name: "Danish"),
-        Language(code: "fi", name: "Finnish"),
-        Language(code: "cs", name: "Czech"),
-        Language(code: "sk", name: "Slovak"),
-        Language(code: "sl", name: "Slovenian"),
-        Language(code: "hr", name: "Croatian"),
-        Language(code: "bg", name: "Bulgarian"),
-        Language(code: "ro", name: "Romanian"),
-        Language(code: "hu", name: "Hungarian"),
-        Language(code: "el", name: "Greek"),
-        Language(code: "et", name: "Estonian"),
-        Language(code: "lv", name: "Latvian"),
-        Language(code: "lt", name: "Lithuanian"),
-        Language(code: "mt", name: "Maltese"),
-    ]
-
-    static let source: [Language] = [auto] + speech
-
-    static let target: [Language] = speech.filter { $0.code != "mt" } + [
-        Language(code: "tr", name: "Turkish"),
-        Language(code: "zh", name: "Chinese (Simplified)"),
-        Language(code: "ja", name: "Japanese"),
-        Language(code: "ko", name: "Korean"),
-        Language(code: "ar", name: "Arabic"),
-        Language(code: "he", name: "Hebrew"),
-        Language(code: "hi", name: "Hindi"),
-        Language(code: "ka", name: "Georgian"),
-        Language(code: "kk", name: "Kazakh"),
-        Language(code: "uz", name: "Uzbek"),
-    ]
+    static let source: [Language] = [english, russian]
+    static let target: [Language] = [russian, english]
 
     static func name(_ code: String) -> String {
-        (source + target).first { $0.code == code }?.name ?? code
+        source.first { $0.code == code }?.name ?? code
+    }
+
+    /// A saved choice that is no longer offered falls back to the default.
+    static func supported(_ code: String?, fallback: String) -> String {
+        guard let code, source.contains(where: { $0.code == code }) else { return fallback }
+        return code
     }
 }
 
@@ -81,8 +49,19 @@ final class TranslationSettings: ObservableObject {
     private let d = UserDefaults.standard
 
     @Published var enabled: Bool { didSet { d.set(enabled, forKey: "tr.enabled") } }
-    @Published var sourceLanguage: String { didSet { d.set(sourceLanguage, forKey: "tr.from") } }
-    @Published var targetLanguage: String { didSet { d.set(targetLanguage, forKey: "tr.to") } }
+    // With two languages, picking one side flips the other.
+    @Published var sourceLanguage: String {
+        didSet {
+            d.set(sourceLanguage, forKey: "tr.from")
+            if targetLanguage == sourceLanguage { targetLanguage = sourceLanguage == "en" ? "ru" : "en" }
+        }
+    }
+    @Published var targetLanguage: String {
+        didSet {
+            d.set(targetLanguage, forKey: "tr.to")
+            if sourceLanguage == targetLanguage { sourceLanguage = targetLanguage == "en" ? "ru" : "en" }
+        }
+    }
     @Published var provider: Provider { didSet { d.set(provider.rawValue, forKey: "tr.provider") } }
     @Published var customBaseURL: String { didSet { d.set(customBaseURL, forKey: "tr.customURL") } }
     @Published var customModel: String { didSet { d.set(customModel, forKey: "tr.customModel") } }
@@ -108,8 +87,8 @@ final class TranslationSettings: ObservableObject {
             "tr.race": false,
         ])
         enabled = d.bool(forKey: "tr.enabled")
-        sourceLanguage = d.string(forKey: "tr.from") ?? "en"
-        targetLanguage = d.string(forKey: "tr.to") ?? "ru"
+        sourceLanguage = Languages.supported(d.string(forKey: "tr.from"), fallback: "en")
+        targetLanguage = Languages.supported(d.string(forKey: "tr.to"), fallback: "ru")
         provider = Provider(rawValue: d.string(forKey: "tr.provider") ?? "") ?? .openRouter
         customBaseURL = d.string(forKey: "tr.customURL") ?? Self.defaultCustomURL
         customModel = d.string(forKey: "tr.customModel") ?? Self.defaultCustomModel
