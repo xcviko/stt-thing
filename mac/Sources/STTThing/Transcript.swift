@@ -9,6 +9,11 @@ struct Line: Identifiable, Equatable {
     var translationPending = false
 }
 
+/// What the panel shows: the captions, or Settings / Cost & stats in their place.
+enum PanelMode {
+    case captions, settings, stats
+}
+
 /// State shown in the overlay.
 final class Transcript: ObservableObject {
     static let maxLines = 30
@@ -21,6 +26,7 @@ final class Transcript: ObservableObject {
     /// Paused: the backend ignores audio, there is no auto-scroll and the
     /// text area takes the mouse so it can be scrolled.
     @Published var paused = false
+    @Published var mode: PanelMode = .captions
     @Published var device = ""
     @Published var fontSize: CGFloat
     @Published var opacity: Double

@@ -43,7 +43,8 @@ device in the menu.
 | Change how much room the translation gets | drag the line between the text and the translation |
 | Stop listening and scroll back | ⏸ in the top bar, then scroll; ▶ to go back to live |
 | Hide or show the panel | **⌥⌘T** |
-| Open the menu | **•••** in the top bar, right-click the top bar, or STT in the menu bar |
+| Open settings and costs | **⚙** in the top bar; Done goes back to the captions |
+| Open the menu | **•••** in the top bar, right-click the top bar, the menu bar icon, or right-click the Dock icon |
 
 The rest of the panel lets clicks through to the window below it.
 
@@ -53,14 +54,14 @@ the end of a line can still change.
 The menu also has Input device, text size, background opacity, Clear text and Restart backend.
 
 stt-thing shows an icon in the Dock and in the menu bar. Click the Dock icon to bring the panel back. Turn either off
-in Settings → App; one of them always stays on.
+in ⚙ → Settings → App; one of them always stays on.
 
 **Hide from screen sharing** is on by default: it asks macOS to leave the panel out of screen sharing and
 recordings. Some apps capture the screen in a way that ignores this, so check with yours before you rely on it.
 
 ## Translation
 
-1. Menu → Settings….
+1. ⚙ in the top bar (or Menu → Settings…). The panel shows the settings in place of the captions.
 2. Turn on Translate the transcript and pick the languages. Speech is recognized in 25 European languages, From
    only tells the translator what to expect.
 3. Pick a provider:
@@ -73,8 +74,8 @@ Each sentence is translated as soon as it's finished and appears in the right co
 
 ## Cost
 
-The top bar shows what translation has cost in this conversation. Menu → Cost & stats… shows this conversation, today
-and all time, with a chart per day and a list of past conversations. New conversation starts the count from zero.
+The top bar shows what translation has cost in this conversation. ⚙ → Cost & stats shows this conversation, today and
+all time, with a chart per day and a list of past conversations. New conversation starts the count from zero.
 
 With OpenRouter, a sentence costs a fraction of a cent.
 

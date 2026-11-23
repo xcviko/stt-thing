@@ -25,7 +25,7 @@ struct StatsView: View {
             }
             .padding(20)
         }
-        .frame(minWidth: 620, minHeight: 640)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: tiles

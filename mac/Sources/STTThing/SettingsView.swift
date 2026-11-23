@@ -69,8 +69,9 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 520)
-        .fixedSize(horizontal: false, vertical: true)
+        .scrollContentBackground(.hidden)
+        .frame(maxWidth: 640)
+        .frame(maxWidth: .infinity)
     }
 
     private func fmt(_ v: Double) -> String { String(format: "%.2f", v) }

@@ -64,8 +64,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var cancellables: Set<AnyCancellable> = []
     private let usage = UsageStore()
     private var translator: Translator!
-    private var settingsWindow: NSWindow?
-    private var statsWindow: NSWindow?
+    /// The panel's frame before it grew to show Settings; put back on Done.
+    private var captionsFrame: NSRect?
     private let defaults = UserDefaults.standard
 
     private var device: String {
@@ -97,6 +97,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         createPanel()
         createStatusItem()
         applyPresence(dock: prefs.showInDock, menuBar: prefs.showInMenuBar)
+        transcript.$mode
+            .dropFirst()
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] mode in self?.panelModeChanged(mode) }
+            .store(in: &cancellables)
         prefs.$showInDock.combineLatest(prefs.$showInMenuBar)
             .dropFirst()
             .receive(on: DispatchQueue.main)
@@ -125,8 +131,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let policy: NSApplication.ActivationPolicy = dock ? .regular : .accessory
         if NSApp.activationPolicy() != policy {
             NSApp.setActivationPolicy(policy)
-            // Switching hides the app's windows; keep Settings open.
-            if let w = settingsWindow, w.isVisible { present(w) }
+            if transcript.mode != .captions { activateForSettings() }
         }
         statusItem.isVisible = menuBar
     }
@@ -156,8 +161,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             transcript: transcript,
             settings: settings,
             usage: usage,
+            prefs: prefs,
             onTogglePause: { [weak self] in self?.togglePause() },
-            onMenu: { [weak self] in self?.popUpMenu() }
+            onMenu: { [weak self] in self?.popUpMenu() },
+            onNewConversation: { [weak self] in self?.newConversation() }
         )
         let host = OverlayHostingView(rootView: view)
         host.menuProvider = { [weak self] in self?.buildMenu() ?? NSMenu() }
@@ -188,7 +195,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let p = NSEvent.mouseLocation
         let f = panel.frame
         let inPanel = f.insetBy(dx: -2, dy: -2).contains(p)
-        var capture = transcript.paused && inPanel
+        // Paused or showing Settings: the whole panel takes the mouse (clicks
+        // outside it never reach it anyway).
+        var capture = transcript.paused || transcript.mode != .captions
         if inPanel && !capture {
             let fromTop = f.maxY - p.y
             let edge = OverlayLayout.resizeEdge + 2
@@ -250,8 +259,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             n += 1
             let targets: [(String, NSView?)] = [
                 ("", self.panel.isVisible ? self.panel.contentView : nil),
-                ("settings-", self.settingsWindow?.isVisible == true ? self.settingsWindow?.contentView : nil),
-                ("stats-", self.statsWindow?.isVisible == true ? self.statsWindow?.contentView : nil),
             ]
             for (name, view) in targets {
                 guard let view, let png = Self.snapshotPNG(view) else { continue }
@@ -468,36 +475,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.menu = buildMenu()
     }
 
-    @objc private func showSettings() {
-        if settingsWindow == nil {
-            settingsWindow = makeWindow(title: "stt-thing Settings", view: SettingsView(settings: settings, prefs: prefs), resizable: false)
+    @objc private func showSettings() { openPanel(.settings) }
+
+    @objc private func showStats() { openPanel(.stats) }
+
+    private func openPanel(_ mode: PanelMode) {
+        if !panel.isVisible { panel.orderFrontRegardless() }
+        transcript.mode = mode
+    }
+
+    /// Settings and Cost & stats show in the panel itself: it grows to fit
+    /// them, takes the keyboard (to type a key), and goes back on Done.
+    private func panelModeChanged(_ mode: PanelMode) {
+        if mode != .captions && captionsFrame == nil {
+            let f = panel.frame
+            captionsFrame = f
+            let visible = panel.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? f
+            let width = max(f.width, 720)
+            let height = min(max(f.height, 640), visible.height)
+            var grown = NSRect(x: f.minX, y: f.maxY - height, width: width, height: height)
+            if grown.minY < visible.minY { grown.origin.y = visible.minY }
+            if grown.maxX > visible.maxX { grown.origin.x = max(visible.minX, visible.maxX - width) }
+            panel.setFrame(grown, display: true, animate: true)
+            activateForSettings()
+        } else if mode == .captions, let saved = captionsFrame {
+            captionsFrame = nil
+            panel.setFrame(saved, display: true, animate: true)
+            NSApp.deactivate()
         }
-        present(settingsWindow!)
+        updateMouseCapture()
     }
 
-    @objc private func showStats() {
-        if statsWindow == nil {
-            let view = StatsView(usage: usage, onNewConversation: { [weak self] in self?.newConversation() })
-            statsWindow = makeWindow(title: "stt-thing · Cost & stats", view: view, resizable: true)
-            statsWindow?.setContentSize(NSSize(width: 680, height: 860))
-        }
-        present(statsWindow!)
-    }
-
-    private func makeWindow<V: View>(title: String, view: V, resizable: Bool) -> NSWindow {
-        var style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable]
-        if resizable { style.insert(.resizable) }
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 400), styleMask: style, backing: .buffered, defer: false)
-        window.title = title
-        window.isReleasedWhenClosed = false
-        window.contentView = NSHostingView(rootView: view)
-        window.center()
-        return window
-    }
-
-    private func present(_ window: NSWindow) {
+    private func activateForSettings() {
         NSApp.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
+        panel.makeKeyAndOrderFront(nil)
     }
 
     @objc private func biggerText() { setFont(transcript.fontSize + 2) }

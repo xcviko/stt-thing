@@ -27,8 +27,10 @@ struct OverlayView: View {
     @ObservedObject var transcript: Transcript
     @ObservedObject var settings: TranslationSettings
     @ObservedObject var usage: UsageStore
+    @ObservedObject var prefs: AppPreferences
     var onTogglePause: () -> Void
     var onMenu: () -> Void
+    var onNewConversation: () -> Void
 
     private let textColor = Color(red: 0.957, green: 0.957, blue: 0.945)
     private let live = Color(red: 0.373, green: 0.827, blue: 0.553)
@@ -41,7 +43,9 @@ struct OverlayView: View {
             let width = OverlayLayout.textWidth(panelWidth: geo.size.width)
             VStack(spacing: 0) {
                 topBar
-                if settings.enabled {
+                if transcript.mode != .captions {
+                    settingsArea
+                } else if settings.enabled {
                     HStack(spacing: 0) {
                         section(.original)
                             .frame(width: width * transcript.split)
@@ -57,7 +61,7 @@ struct OverlayView: View {
                         .frame(maxHeight: .infinity)
                 }
             }
-            .background(originalBackground.opacity(transcript.opacity))
+            .background(originalBackground.opacity(transcript.mode == .captions ? transcript.opacity : 0.97))
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -105,12 +109,47 @@ struct OverlayView: View {
                 tint: transcript.paused ? paused : textColor.opacity(0.55),
                 action: onTogglePause
             )
+            BarButton(
+                symbol: "gearshape",
+                help: transcript.mode == .captions ? "Settings" : "Back to captions",
+                tint: transcript.mode == .captions ? textColor.opacity(0.55) : textColor,
+                action: { transcript.mode = transcript.mode == .captions ? .settings : .captions }
+            )
             BarButton(symbol: "ellipsis", help: "Menu", tint: textColor.opacity(0.55), action: onMenu)
         }
         .padding(.leading, 12)
         .padding(.trailing, 6)
         .frame(height: OverlayLayout.topBar)
         .background(WindowDragArea())
+    }
+
+    // MARK: settings and cost, in place of the captions
+
+    private var settingsArea: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Picker("", selection: $transcript.mode) {
+                    Text("Settings").tag(PanelMode.settings)
+                    Text("Cost & stats").tag(PanelMode.stats)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 240)
+                Spacer()
+                Button("Done") { transcript.mode = .captions }
+                    .keyboardShortcut(.defaultAction)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            Divider()
+            if transcript.mode == .stats {
+                StatsView(usage: usage, onNewConversation: onNewConversation)
+            } else {
+                SettingsView(settings: settings, prefs: prefs)
+            }
+        }
+        .environment(\.colorScheme, .dark)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var dotColor: Color {
@@ -285,6 +324,7 @@ private struct BarButton: View {
         }
         .buttonStyle(.plain)
         .help(help)
+        .accessibilityLabel(help)
         .onHover { hover = $0 }
     }
 }
