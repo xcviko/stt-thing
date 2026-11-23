@@ -112,10 +112,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: window
 
-    /// One panel: recognized text on top, translation below.
+    /// One panel: recognized text on the left, translation on the right.
     private func createPanel() {
         let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let size = NSSize(width: 760, height: 300)
+        let size = NSSize(width: 1000, height: 190)
         let origin = NSPoint(x: screen.midX - size.width / 2, y: screen.maxY - size.height - 12)
         panel = OverlayPanel(contentRect: NSRect(origin: origin, size: size))
         panel.minSize = OverlayLayout.minSize
@@ -130,7 +130,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let host = OverlayHostingView(rootView: view)
         host.menuProvider = { [weak self] in self?.buildMenu() ?? NSMenu() }
         panel.contentView = host
-        panel.setFrameAutosaveName("STTOverlayPanel")
+        panel.setFrameAutosaveName("STTOverlayWide")
         applyCaptureSetting()
         panel.orderFrontRegardless()
         startMouseTracking()
@@ -165,9 +165,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let onBottom = p.y <= f.minY + edge
             var onDivider = false
             if settings.enabled {
-                let space = OverlayLayout.textSpace(panelHeight: f.height)
-                let dividerTop = OverlayLayout.topBar + space * transcript.split
-                onDivider = fromTop >= dividerTop - 2 && fromTop <= dividerTop + OverlayLayout.divider + 2
+                let width = OverlayLayout.textWidth(panelWidth: f.width)
+                let dividerX = f.minX + width * transcript.split
+                onDivider = !inTopBar && p.x >= dividerX - 2 && p.x <= dividerX + OverlayLayout.divider + 2
             }
             capture = inTopBar || onRight || onBottom || onDivider
         }

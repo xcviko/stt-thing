@@ -6,19 +6,23 @@ import SwiftUI
 /// clicks through unless the transcript is paused.
 enum OverlayLayout {
     static let topBar: CGFloat = 26
-    static let divider: CGFloat = 22
+    /// The vertical line between the original and the translation.
+    static let divider: CGFloat = 9
+    /// The "EN → RU" header above the translation column.
+    static let columnHeader: CGFloat = 22
     static let resizeEdge: CGFloat = 6
     static let resizeCorner: CGFloat = 16
-    static let minSize = NSSize(width: 280, height: 90)
+    static let minSize = NSSize(width: 360, height: 90)
 
-    /// Height of the text space shared by both sections.
-    static func textSpace(panelHeight: CGFloat) -> CGFloat {
-        max(0, panelHeight - topBar - divider)
+    /// Width shared by the two columns.
+    static func textWidth(panelWidth: CGFloat) -> CGFloat {
+        max(0, panelWidth - divider)
     }
 }
 
-/// One panel: recognized text on top, translation below (when translation is
-/// on), divided by a bar that can be dragged to change the split.
+/// One panel: recognized text on the left, translation on the right (when
+/// translation is on), divided by a line that can be dragged to change the
+/// split.
 struct OverlayView: View {
     @ObservedObject var transcript: Transcript
     @ObservedObject var settings: TranslationSettings
@@ -34,15 +38,20 @@ struct OverlayView: View {
 
     var body: some View {
         GeometryReader { geo in
-            let space = OverlayLayout.textSpace(panelHeight: geo.size.height)
+            let width = OverlayLayout.textWidth(panelWidth: geo.size.width)
             VStack(spacing: 0) {
                 topBar
                 if settings.enabled {
-                    section(.original)
-                        .frame(height: space * transcript.split)
-                    dividerBar
-                    section(.translation)
-                        .frame(maxHeight: .infinity)
+                    HStack(spacing: 0) {
+                        section(.original)
+                            .frame(width: width * transcript.split)
+                        columnDivider
+                        VStack(spacing: 0) {
+                            translationHeader
+                            section(.translation)
+                        }
+                    }
+                    .frame(maxHeight: .infinity)
                 } else {
                     section(.original)
                         .frame(maxHeight: .infinity)
@@ -109,9 +118,20 @@ struct OverlayView: View {
         return transcript.speech ? live : textColor.opacity(0.42)
     }
 
-    // MARK: divider (translation header, drag to change the split)
+    // MARK: translation header and the divider between the columns
 
-    private var dividerBar: some View {
+    private var columnDivider: some View {
+        Rectangle()
+            .fill(Color.white.opacity(0.12))
+            .frame(width: 1)
+            .frame(width: OverlayLayout.divider)
+            .frame(maxHeight: .infinity)
+            .padding(.vertical, 6)
+            .background(SplitDragArea(split: $transcript.split))
+            .help("Drag to change the split")
+    }
+
+    private var translationHeader: some View {
         HStack(spacing: 7) {
             Text(languagePair)
                 .font(.system(size: 10, weight: .semibold))
@@ -125,16 +145,10 @@ struct OverlayView: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 0)
-            Image(systemName: "line.3.horizontal")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundColor(textColor.opacity(0.35))
-                .padding(.trailing, 10)
         }
         .padding(.leading, 12)
-        .frame(height: OverlayLayout.divider)
-        .overlay(alignment: .top) { Rectangle().fill(Color.white.opacity(0.12)).frame(height: 1) }
-        .background(SplitDragArea(split: $transcript.split))
-        .help("Drag to change the split")
+        .padding(.trailing, 8)
+        .frame(height: OverlayLayout.columnHeader)
     }
 
     private var languagePair: String {
@@ -301,7 +315,7 @@ private struct WindowDragArea: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
-/// Dragging the divider changes how much of the text space the original gets.
+/// Dragging the divider changes how much of the width the original gets.
 private struct SplitDragArea: NSViewRepresentable {
     @Binding var split: CGFloat
 
@@ -309,20 +323,17 @@ private struct SplitDragArea: NSViewRepresentable {
         var onSplit: ((CGFloat) -> Void)?
         override var mouseDownCanMoveWindow: Bool { false }
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-        override func resetCursorRects() { addCursorRect(bounds, cursor: .resizeUpDown) }
+        override func resetCursorRects() { addCursorRect(bounds, cursor: .resizeLeftRight) }
 
         override func mouseDown(with event: NSEvent) {
             guard let window else { return }
-            let grabOffset = convert(event.locationInWindow, from: nil).y - bounds.midY
+            let grabOffset = convert(event.locationInWindow, from: nil).x - bounds.midX
             while let e = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
                 if e.type == .leftMouseUp { break }
-                // Window coordinates: origin bottom-left.
-                let height = window.frame.height
-                let space = OverlayLayout.textSpace(panelHeight: height)
-                guard space > 0 else { continue }
-                let fromTop = height - e.locationInWindow.y + grabOffset
-                let original = fromTop - OverlayLayout.topBar - OverlayLayout.divider / 2
-                onSplit?(min(0.85, max(0.15, original / space)))
+                let width = OverlayLayout.textWidth(panelWidth: window.frame.width)
+                guard width > 0 else { continue }
+                let original = e.locationInWindow.x - grabOffset - OverlayLayout.divider / 2
+                onSplit?(min(0.8, max(0.2, original / width)))
             }
         }
     }
@@ -335,6 +346,7 @@ private struct SplitDragArea: NSViewRepresentable {
 
     func updateNSView(_ nsView: SplitView, context: Context) {
         nsView.onSplit = { split = $0 }
+        nsView.window?.invalidateCursorRects(for: nsView)
     }
 }
 

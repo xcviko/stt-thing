@@ -24,9 +24,9 @@ final class Transcript: ObservableObject {
     @Published var device = ""
     @Published var fontSize: CGFloat
     @Published var opacity: Double
-    /// Share of the text space the original gets when translation is on.
+    /// Share of the width the original column gets when translation is on.
     @Published var split: CGFloat {
-        didSet { UserDefaults.standard.set(Double(split), forKey: "split") }
+        didSet { UserDefaults.standard.set(Double(split), forKey: "splitH") }
     }
     /// Last translation problem, cleared after a few seconds.
     @Published var translationError: String?
@@ -42,8 +42,8 @@ final class Transcript: ObservableObject {
     init(fontSize: CGFloat, opacity: Double) {
         self.fontSize = fontSize
         self.opacity = opacity
-        let saved = UserDefaults.standard.double(forKey: "split")
-        self.split = saved > 0 ? CGFloat(saved) : 0.45
+        let saved = UserDefaults.standard.double(forKey: "splitH")
+        self.split = saved > 0 ? CGFloat(saved) : 0.5
     }
 
     func loading(device: String) {

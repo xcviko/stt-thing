@@ -40,7 +40,7 @@ device in the menu.
 |---|---|
 | Move the panel | drag its top bar |
 | Resize it | drag the right edge, the bottom edge or the bottom right corner |
-| Change how much room the translation gets | drag the bar with "EN → RU" up or down |
+| Change how much room the translation gets | drag the line between the text and the translation |
 | Stop listening and scroll back | ⏸ in the top bar, then scroll; ▶ to go back to live |
 | Hide or show the panel | **⌥⌘T** |
 | Open the menu | **•••** in the top bar, right-click the top bar, or STT in the menu bar |
@@ -66,7 +66,7 @@ recordings. Some apps capture the screen in a way that ignores this, so check wi
      prices per million tokens if it doesn't report the cost itself.
 4. Press Test. It translates one sentence and shows the result, the time it took and the price.
 
-Each sentence is translated as soon as it's finished and appears under the original a moment later.
+Each sentence is translated as soon as it's finished and appears in the right column a moment later.
 
 ## Cost
 
