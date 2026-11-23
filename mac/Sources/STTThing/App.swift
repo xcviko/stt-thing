@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Carbon.HIToolbox
 import SwiftUI
 
@@ -59,6 +60,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var mouseTimer: Timer?
     private var usr1Source: DispatchSourceSignal?
     private let settings = TranslationSettings()
+    private let prefs = AppPreferences()
+    private var cancellables: Set<AnyCancellable> = []
     private let usage = UsageStore()
     private var translator: Translator!
     private var settingsWindow: NSWindow?
@@ -89,9 +92,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.translator.process(line: id, committed: committed, final: final)
         }
 
+        NSApp.applicationIconImage = AppIcon.image(size: 512)
         installEditMenu()
         createPanel()
         createStatusItem()
+        applyPresence(dock: prefs.showInDock, menuBar: prefs.showInMenuBar)
+        prefs.$showInDock.combineLatest(prefs.$showInMenuBar)
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] dock, menuBar in self?.applyPresence(dock: dock, menuBar: menuBar) }
+            .store(in: &cancellables)
         registerHotKey()
         listenForPauseSignal()
 
@@ -108,6 +118,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         backend?.stop()
+    }
+
+    /// Dock icon or menu bar item, as set in Settings.
+    private func applyPresence(dock: Bool, menuBar: Bool) {
+        let policy: NSApplication.ActivationPolicy = dock ? .regular : .accessory
+        if NSApp.activationPolicy() != policy {
+            NSApp.setActivationPolicy(policy)
+            // Switching hides the app's windows; keep Settings open.
+            if let w = settingsWindow, w.isVisible { present(w) }
+        }
+        statusItem.isVisible = menuBar
+    }
+
+    /// Clicking the Dock icon brings the panel back.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !panel.isVisible { panel.orderFrontRegardless() }
+        return true
+    }
+
+    /// Right-click on the Dock icon: the same menu as the panel.
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        buildMenu()
     }
 
     // MARK: window
@@ -253,12 +285,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return rep.representation(using: .png, properties: [:])
     }
 
-    /// An accessory app has no menu bar of its own, but text fields need the
-    /// Edit menu for ⌘C / ⌘V / ⌘A to work (pasting an API key).
+    /// The app's own menus: shown when it's in the Dock and active, and the
+    /// Edit menu makes ⌘C / ⌘V / ⌘A work in text fields (pasting an API key).
     private func installEditMenu() {
         let main = NSMenu()
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
+        appMenu.addItem(item("Settings…", #selector(showSettings), key: ","))
+        appMenu.addItem(item("Cost & stats…", #selector(showStats)))
+        appMenu.addItem(item("Show / hide panel  (⌥⌘T)", #selector(toggleWindow)))
+        appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Quit stt-thing", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
         main.addItem(appItem)
@@ -327,7 +363,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func createStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.title = "STT"
+        statusItem.button?.image = AppIcon.menuBarImage()
+        statusItem.button?.toolTip = "stt-thing"
         statusItem.menu = buildMenu()
     }
 
@@ -377,7 +414,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let toItem = NSMenuItem(title: "Translate to: \(Languages.name(settings.targetLanguage))", action: nil, keyEquivalent: "")
         toItem.submenu = toMenu
         menu.addItem(toItem)
-        menu.addItem(item("Translation settings…", #selector(showSettings), key: ","))
+        menu.addItem(item("Settings…", #selector(showSettings), key: ","))
         menu.addItem(item("Cost & stats…", #selector(showStats)))
         menu.addItem(.separator())
         menu.addItem(item("Bigger text", #selector(biggerText), key: "="))
@@ -433,7 +470,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func showSettings() {
         if settingsWindow == nil {
-            settingsWindow = makeWindow(title: "stt-thing · Translation", view: SettingsView(settings: settings), resizable: false)
+            settingsWindow = makeWindow(title: "stt-thing Settings", view: SettingsView(settings: settings, prefs: prefs), resizable: false)
         }
         present(settingsWindow!)
     }
@@ -511,7 +548,19 @@ enum STTThingApp {
         let app = NSApplication.shared
         let delegate = AppDelegate()
         app.delegate = delegate
-        app.setActivationPolicy(.accessory) // no Dock icon, menu bar item only
+        // make-app.sh draws the app icon with the same code as the Dock icon.
+        let args = CommandLine.arguments
+        if let i = args.firstIndex(of: "--render-iconset"), i + 1 < args.count {
+            do {
+                try AppIcon.writeIconset(to: URL(fileURLWithPath: args[i + 1]))
+                exit(0)
+            } catch {
+                FileHandle.standardError.write(Data("render-iconset: \(error)\n".utf8))
+                exit(1)
+            }
+        }
+        // Starts without a Dock icon; Settings decide (applyPresence).
+        app.setActivationPolicy(.accessory)
         app.run()
     }
 }

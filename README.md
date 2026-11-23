@@ -52,12 +52,15 @@ the end of a line can still change.
 
 The menu also has Input device, text size, background opacity, Clear text and Restart backend.
 
+stt-thing shows an icon in the Dock and in the menu bar. Click the Dock icon to bring the panel back. Turn either off
+in Settings → App; one of them always stays on.
+
 **Hide from screen sharing** is on by default: it asks macOS to leave the panel out of screen sharing and
 recordings. Some apps capture the screen in a way that ignores this, so check with yours before you rely on it.
 
 ## Translation
 
-1. Menu → Translation settings….
+1. Menu → Settings….
 2. Turn on Translate the transcript and pick the languages. Speech is recognized in 25 European languages, From
    only tells the translator what to expect.
 3. Pick a provider:

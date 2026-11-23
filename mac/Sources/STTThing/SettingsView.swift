@@ -2,11 +2,22 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var settings: TranslationSettings
+    @ObservedObject var prefs: AppPreferences
     @State private var testResult = ""
     @State private var testing = false
 
     var body: some View {
         Form {
+            Section("App") {
+                Toggle("Show in the Dock", isOn: $prefs.showInDock)
+                    .disabled(prefs.showInDock && !prefs.showInMenuBar)
+                Toggle("Show in the menu bar", isOn: $prefs.showInMenuBar)
+                    .disabled(prefs.showInMenuBar && !prefs.showInDock)
+                Text("One of them stays on, so the menu is always one click away. ⌥⌘T shows or hides the panel.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Translation") {
                 Toggle("Translate the transcript", isOn: $settings.enabled)
                 Picker("From", selection: $settings.sourceLanguage) {

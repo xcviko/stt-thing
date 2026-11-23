@@ -182,3 +182,29 @@ enum KeyStore {
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
     }
 }
+
+/// Where the app shows itself besides its panel. At least one stays on, so
+/// the menu is always reachable.
+final class AppPreferences: ObservableObject {
+    private let d = UserDefaults.standard
+
+    @Published var showInDock: Bool {
+        didSet {
+            d.set(showInDock, forKey: "showInDock")
+            if !showInDock && !showInMenuBar { showInMenuBar = true }
+        }
+    }
+
+    @Published var showInMenuBar: Bool {
+        didSet {
+            d.set(showInMenuBar, forKey: "showInMenuBar")
+            if !showInMenuBar && !showInDock { showInDock = true }
+        }
+    }
+
+    init() {
+        d.register(defaults: ["showInDock": true, "showInMenuBar": true])
+        showInDock = d.bool(forKey: "showInDock")
+        showInMenuBar = d.bool(forKey: "showInMenuBar")
+    }
+}

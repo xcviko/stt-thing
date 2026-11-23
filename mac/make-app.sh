@@ -32,6 +32,12 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/stt-thing "$APP/Contents/MacOS/stt-thing"
 
+# The app icon, drawn by the app itself (Icon.swift).
+ICONSET="$(mktemp -d)/AppIcon.iconset"
+"$APP/Contents/MacOS/stt-thing" --render-iconset "$ICONSET"
+iconutil -c icns -o "$APP/Contents/Resources/AppIcon.icns" "$ICONSET"
+rm -rf "$(dirname "$ICONSET")"
+
 BACKEND_KEY=""
 if [[ $RELEASE == 1 ]]; then
   # Backend sources and the lock file, so uv installs exactly these versions.
@@ -61,6 +67,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleDisplayName</key><string>stt-thing</string>
   <key>CFBundleIdentifier</key><string>com.xcviko.stt-thing</string>
   <key>CFBundleExecutable</key><string>stt-thing</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>$VERSION</string>
