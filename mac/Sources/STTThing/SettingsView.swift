@@ -15,7 +15,7 @@ struct SettingsView: View {
                 Picker("To", selection: $settings.targetLanguage) {
                     ForEach(Languages.target) { Text($0.name).tag($0.code) }
                 }
-                Text("Speech recognition is parakeet v3: it understands the 25 European languages in the From list and detects the language itself. From only tells the translator what to expect.")
+                Text("Speech recognition is Parakeet Ultra: it understands the 25 European languages in the From list and detects the language itself. From only tells the translator what to expect.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -35,15 +35,7 @@ struct SettingsView: View {
                     )
                 } else {
                     TextField("Base URL", text: $settings.customBaseURL, prompt: Text("https://host/v1"))
-                    HStack {
-                        SecureField("API key", text: $settings.customKey, prompt: Text("empty = vertex-proxy key file"))
-                        Button("From vertex-proxy") {
-                            testResult = settings.importVertexProxyKey()
-                                ? "Key taken from \(TranslationSettings.vertexProxyKeyFile)"
-                                : "No key in \(TranslationSettings.vertexProxyKeyFile)"
-                        }
-                        .help("Use the key from \(TranslationSettings.vertexProxyKeyFile)")
-                    }
+                    SecureField("API key", text: $settings.customKey, prompt: Text("paste the key for this app"))
                     TextField("Model", text: $settings.customModel)
                     Toggle("Send reasoning_effort: minimal", isOn: $settings.customMinimalReasoning)
                     HStack {

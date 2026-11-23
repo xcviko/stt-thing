@@ -38,14 +38,9 @@ if [[ $RELEASE == 1 ]]; then
   mkdir -p "$APP/Contents/Resources/backend" "$APP/Contents/Resources/bin"
   cp "$ROOT/backend/stt_server.py" "$ROOT/backend/agreement.py" \
      "$ROOT/backend/pyproject.toml" "$ROOT/backend/uv.lock" "$APP/Contents/Resources/backend/"
-  # The speech model, so the app never needs Hugging Face (some networks
-  # cannot download from it). Taken from the local HF cache, symlinks resolved.
-  MODEL_ID="sonic-speech/parakeet-tdt-0.6b-v3-int8"
-  MODEL_SRC="$("$ROOT/backend/.venv/bin/python" -c "from huggingface_hub import snapshot_download; print(snapshot_download('$MODEL_ID'))")"
-  mkdir -p "$APP/Contents/Resources/model"
-  for f in config.json model.safetensors tokenizer.model quantization_config.json README.md; do
-    cp -L "$MODEL_SRC/$f" "$APP/Contents/Resources/model/$f"
-  done
+  # The speech model (Parakeet Ultra, encoder already quantized to 8 bits), so
+  # the app never needs Hugging Face: some networks cannot download from it.
+  "$ROOT/backend/.venv/bin/python" "$ROOT/backend/export_model.py" "$APP/Contents/Resources/model" >/dev/null
   # uv is a single binary that links only system libraries.
   UV_BIN="$(readlink -f "$(command -v uv)")"
   cp "$UV_BIN" "$APP/Contents/Resources/bin/uv"

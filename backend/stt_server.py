@@ -201,15 +201,20 @@ class FileSource:
 # ------------------------------------------------------------------- ASR
 
 
-DEFAULT_MODEL = "sonic-speech/parakeet-tdt-0.6b-v3-int8"
+# Moondream's Parakeet Ultra (a post-trained nvidia/parakeet-tdt-0.6b-v3) in
+# the MLX layout. Full precision; the encoder is quantized to 8 bits on load.
+DEFAULT_MODEL = "selcukkubur/parakeet-ultra-mlx"
+ENCODER_QUANT = {"group_size": 64, "bits": 8}
 
 
-def load_parakeet(model_id: str):
-    """Loads a parakeet-mlx model, including quantized checkpoints.
+def load_parakeet(model_id: str, encoder_bits: int = ENCODER_QUANT["bits"]):
+    """Loads a parakeet-mlx model from a Hugging Face id or a local folder.
 
-    parakeet-mlx's from_pretrained fails on quantized weights (extra .scales
-    and .biases), so quantize the layers that have .scales first and load the
-    weights after that. Same approach as the telegram skill.
+    Quantized checkpoints (config.json has "quantization") are loaded as they
+    are: parakeet-mlx's from_pretrained fails on their extra .scales and
+    .biases, so the layers that have .scales are quantized before the weights
+    go in. A full precision checkpoint gets its encoder quantized after
+    loading, unless encoder_bits is 0: same accuracy, about 40% less memory.
     """
 
     import mlx.core as mx
@@ -217,7 +222,6 @@ def load_parakeet(model_id: str):
     from huggingface_hub import snapshot_download
     from parakeet_mlx.utils import from_config
 
-    # A local folder (the model bundled in a release app) or a Hugging Face id.
     path = Path(model_id) if Path(model_id).is_dir() else Path(snapshot_download(model_id))
     config = json.loads((path / "config.json").read_text())
     model = from_config(config)
@@ -232,18 +236,22 @@ def load_parakeet(model_id: str):
             class_predicate=lambda p, _: p in qlayers,
         )
     model.load_weights(list(weights.items()))
+    del weights
+    if not quant and encoder_bits:
+        nn.quantize(model.encoder, group_size=ENCODER_QUANT["group_size"], bits=encoder_bits)
     mx.eval(model.parameters())
+    mx.clear_cache()
     return model
 
 
 class Asr:
-    def __init__(self, model_id: str):
+    def __init__(self, model_id: str, encoder_bits: int = 8):
         import mlx.core as mx
         from parakeet_mlx.audio import get_logmel
 
         self.mx = mx
         self.get_logmel = get_logmel
-        self.model = load_parakeet(model_id)
+        self.model = load_parakeet(model_id, encoder_bits)
         self.transcribe(np.zeros(SR, np.float32))  # warm-up
 
     def transcribe(self, audio: np.ndarray, offset: float = 0.0) -> list[Word]:
@@ -493,6 +501,8 @@ def main():
     p.add_argument("--speed", type=float, default=1.0, help="playback speed for --file")
     p.add_argument("--list-devices", action="store_true")
     p.add_argument("--model", default=DEFAULT_MODEL, help="Hugging Face id or local folder of a parakeet MLX model")
+    p.add_argument("--encoder-bits", type=int, default=ENCODER_QUANT["bits"],
+                   help="quantize a full precision encoder to this many bits on load (0 = keep it)")
     p.add_argument("--interval", type=float, default=0.25, help="min seconds between decode starts")
     p.add_argument("--silence", type=float, default=0.7, help="silence that ends a segment, seconds")
     p.add_argument("--min-speech", type=float, default=0.25, help="ignore segments with less speech, seconds")
@@ -522,7 +532,7 @@ def main():
 
     log(f"loading {args.model} ...")
     t0 = time.monotonic()
-    asr = Asr(args.model)
+    asr = Asr(args.model, args.encoder_bits)
     log(f"model ready in {time.monotonic() - t0:.1f}s")
 
     pipeline = Pipeline(args, asr, audio_q)

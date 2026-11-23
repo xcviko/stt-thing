@@ -103,7 +103,7 @@ open build/stt-thing.app
 ```
 
 This build runs the speech backend straight from `backend/`. The first launch downloads the speech model (about
-800 MB) from Hugging Face. To see the backend's output, run `swift run` in `mac/`.
+1.3 GB) from Hugging Face. To see the backend's output, run `swift run` in `mac/`.
 
 The backend also works on its own, for example on a recording:
 
@@ -118,3 +118,9 @@ cd backend && uv run python stt_server.py --file call.wav
 `./make-app.sh --release x.y.z` builds a self-contained app (Python backend, uv and the speech model inside) and zips
 it into `mac/build/release/`. It never pushes or publishes: it prints the `git push` and `gh release create`
 commands to run yourself. Release notes rules are in `CLAUDE.md`.
+
+## Credits
+
+Speech recognition uses [Parakeet Ultra](https://huggingface.co/moondream/parakeet-ultra) by Moondream, a
+post-trained version of [Parakeet TDT 0.6B v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) by NVIDIA, in the
+[MLX conversion](https://huggingface.co/selcukkubur/parakeet-ultra-mlx) by selcukkubur. All CC-BY-4.0.

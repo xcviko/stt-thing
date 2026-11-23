@@ -9,7 +9,7 @@ struct Language: Hashable, Identifiable {
 enum Languages {
     static let auto = Language(code: "auto", name: "Auto-detect")
 
-    /// Languages parakeet-tdt-0.6b-v3 transcribes (it detects the language itself).
+    /// Languages Parakeet Ultra transcribes (it detects the language itself).
     static let speech: [Language] = [
         Language(code: "en", name: "English"),
         Language(code: "ru", name: "Russian"),
@@ -73,7 +73,6 @@ final class TranslationSettings: ObservableObject {
     /// The user's Vertex AI proxy (OpenAI surface). It returns usage.cost too.
     static let defaultCustomURL = "https://vertex-proxy-302q-a6klnxibxa-uc.a.run.app/v1"
     static let defaultCustomModel = "gemini-3.5-flash-lite"
-    static let vertexProxyKeyFile = "~/.config/vertex-proxy/key"
     /// OpenRouter list price for the model, USD per 1M tokens. Used only when
     /// a response has no `usage.cost`.
     static let defaultInputPrice = 0.30
@@ -118,21 +117,6 @@ final class TranslationSettings: ObservableObject {
         customKey = KeyStore.get(account: "custom") ?? ""
     }
 
-    /// Reads the vertex-proxy key file into the custom key. Returns false when
-    /// the file is missing or empty.
-    func importVertexProxyKey() -> Bool {
-        guard let key = Self.readVertexProxyKey() else { return false }
-        customKey = key
-        return true
-    }
-
-    static func readVertexProxyKey() -> String? {
-        let path = (vertexProxyKeyFile as NSString).expandingTildeInPath
-        guard let key = try? String(contentsOfFile: path, encoding: .utf8)
-            .trimmingCharacters(in: .whitespacesAndNewlines), !key.isEmpty else { return nil }
-        return key
-    }
-
     /// Everything a request needs, or a message saying what is missing.
     struct Endpoint {
         let chatURL: URL
@@ -161,13 +145,8 @@ final class TranslationSettings: ObservableObject {
                 return .failure(.notConfigured("set the custom endpoint URL"))
             }
             let model = customModel.trimmingCharacters(in: .whitespaces)
-            // No key typed in and the URL is the vertex-proxy: use its key file.
-            var key = customKey
-            if key.isEmpty, url.host?.contains("vertex-proxy") == true {
-                key = Self.readVertexProxyKey() ?? ""
-            }
             return .success(Endpoint(
-                chatURL: url, key: key, model: model.isEmpty ? Self.defaultCustomModel : model,
+                chatURL: url, key: customKey, model: model.isEmpty ? Self.defaultCustomModel : model,
                 isOpenRouter: false, minimalReasoning: customMinimalReasoning,
                 inputPrice: customInputPrice, outputPrice: customOutputPrice
             ))

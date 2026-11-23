@@ -101,7 +101,7 @@ final class Backend {
            !FileManager.default.fileExists(atPath: AppPaths.dataDir.appendingPathComponent("venv/bin/python").path) {
             onEvent?(.log(bundledModel != nil
                 ? "first launch: installing Python packages (~0.5 GB), a minute or two…"
-                : "first launch: installing Python packages (~0.5 GB), then the speech model (~0.8 GB)…"))
+                : "first launch: installing Python packages (~0.5 GB), then the speech model (~1.3 GB)…"))
         }
         openLog(command: [exe.path] + args)
         let p = Process()
